@@ -7,6 +7,7 @@ require 'open3'
 require 'securerandom'
 require 'thread'
 require 'timeout'
+require 'uri'
 Sketchup.require(File.join(__dir__, 'su_mcp_bridge'))
 
 module NepNhaDesign
@@ -23,8 +24,10 @@ module NepNhaDesign
     CONFIG_PATH = File.join(DATA_DIR, 'cau-hinh-mcp.json').freeze
     CHAT_HTML_PATH = File.join(ROOT, 'chat.html').freeze
     CHAT_WORKER_PATH = File.join(ROOT, 'chat_worker.py').freeze
+    SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
+    SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.4.3'
+    VERSION = '1.6.1'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -83,6 +86,38 @@ module NepNhaDesign
         end
       end
 
+      def choose_shared_skills
+        local = local_skills_dir
+        current = shared_skills_dir
+        selected = UI.select_directory(
+          title: 'Chọn thư mục design-skills dùng chung',
+          directory: File.directory?(current) ? current : local
+        )
+        return unless selected
+
+        selected = File.expand_path(selected)
+        unless File.identical?(selected, local)
+          Dir.glob('*.md', base: local).each do |name|
+            path = File.join(local, name)
+            next unless File.file?(path) && !File.symlink?(path)
+
+            target = File.join(selected, File.basename(path))
+            begin
+              File.open(target, File::WRONLY | File::CREAT | File::EXCL | File::BINARY) do |file|
+                file.write(File.binread(path))
+              end
+            rescue Errno::EEXIST
+              next
+            end
+          end
+        end
+        path = File.identical?(selected, local) ? '' : selected
+        Sketchup.write_default('NepNhaDesign', SHARED_SKILLS_SETTING, path)
+        UI.messagebox("Kho skill đang dùng:\n#{selected}")
+      rescue StandardError => e
+        UI.messagebox("Không đặt được kho skill: #{e.message}")
+      end
+
       private
 
       def python_path
@@ -136,12 +171,33 @@ module NepNhaDesign
 
         @thread_id = nil
         @chat_dialog = UI::HtmlDialog.new(
-          dialog_title: "Trợ lý AI Nếp Nhà · #{VERSION}", width: 510, height: 740,
+          dialog_title: 'Trợ lý AI Nếp Nhà', width: 510, height: 740,
           min_width: 380, min_height: 500, resizable: true,
           style: UI::HtmlDialog::STYLE_DIALOG
         )
         @chat_dialog.set_file(CHAT_HTML_PATH)
         @chat_dialog.add_action_callback('nep_nha_send') { |_context, raw| receive_chat(raw) }
+        @chat_dialog.add_action_callback('nep_nha_save_skill') { |_context, content| save_skill(content) }
+        @chat_dialog.add_action_callback('nep_nha_pick_image') do |_context, role|
+          next unless %w[plan reference].include?(role)
+
+          filter = role == 'plan' ? 'Mặt bằng|*.pdf;*.png;*.jpg;*.jpeg;*.webp||' : 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
+          path = UI.openpanel('Chọn tệp', '', filter)
+          if path
+            data = JSON.generate({ role: role, path: path, name: File.basename(path) })
+            @chat_dialog.execute_script("window.NepNhaChat.attach(#{data})")
+          end
+        end
+        @chat_dialog.add_action_callback('nep_nha_skills') do |_context|
+          directory = skills_dir
+          unless File.directory?(directory)
+            UI.messagebox("Kho skill dùng chung đang ngoại tuyến:\n#{directory}")
+            next
+          end
+          prefix = WINDOWS ? 'file:///' : 'file://'
+          path = URI::DEFAULT_PARSER.escape(directory.tr('\\', '/'), /[^A-Za-z0-9\-._~:\/]/)
+          UI.openURL(prefix + path)
+        end
         @chat_dialog.add_action_callback('nep_nha_reset') { |_context| reset_chat }
         @chat_dialog.add_action_callback('nep_nha_auth_status') do |_context|
           repository = Sketchup.read_default('NepNhaDesign', 'UpdateRepository', DEFAULT_REPOSITORY)
@@ -192,6 +248,9 @@ module NepNhaDesign
         end
 
         request = JSON.parse(raw)
+        draft = request['draft_skill'] == true
+        raise ArgumentError, 'Hãy trao đổi về quy tắc thiết kế trước khi soạn skill.' if draft && !@thread_id
+
         prompt = request['prompt'].to_s.strip
         raise ArgumentError, 'Nội dung cần từ 1 đến 10.000 ký tự.' unless prompt.length.between?(1, 10_000)
         executable = @codex_path
@@ -200,7 +259,10 @@ module NepNhaDesign
         payload = {
           prompt: prompt, thread_id: @thread_id, codex_path: executable, model: request['model'].to_s,
           python_path: background_python_path, mcp_server_path: MCP_SERVER_PATH, data_dir: DATA_DIR,
-          fast: request['fast'] == true
+          fast: request['fast'] == true, images: request.fetch('images', []), skills_dir: skills_dir,
+          local_skills_dir: local_skills_dir, draft_skill: draft,
+          selection: Bridge.selection_info(Sketchup.active_model),
+          pdf_page: request.fetch('pdf_page', 1)
         }
         dialog = @chat_dialog
         @chat_busy = true
@@ -217,12 +279,56 @@ module NepNhaDesign
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
           @thread_id = result['thread_id'] if result['ok'] && result['thread_id']
+          result['draft_skill'] = draft if result['ok']
           send_to_chat(result)
         end
       rescue JSON::ParserError, ArgumentError => e
         send_to_chat(ok: false, error: e.message)
       rescue StandardError => e
         send_to_chat(ok: false, error: "Lỗi bảng chat: #{e.message}")
+      end
+
+      def skills_dir
+        shared = shared_skills_dir
+        shared.empty? ? local_skills_dir : shared
+      end
+
+      def shared_skills_dir
+        Sketchup.read_default('NepNhaDesign', SHARED_SKILLS_SETTING, '').to_s
+      end
+
+      def local_skills_dir
+        FileUtils.mkdir_p(SKILLS_DIR)
+        Dir.glob(File.join(ROOT, 'design-skills', '*.md')).each do |path|
+          target = File.join(SKILLS_DIR, File.basename(path))
+          FileUtils.cp(path, target) unless File.exist?(target)
+        end
+        SKILLS_DIR
+      end
+
+      def save_skill(content)
+        body = content.to_s.strip
+        unless body.bytesize.between?(1, 32_767) && body.start_with?('# ')
+          raise ArgumentError, 'Skill cần tiêu đề Markdown bắt đầu bằng # và dung lượng dưới 32 KB.'
+        end
+
+        directory = skills_dir
+        unless File.directory?(directory)
+          raise ArgumentError, 'Kho skill dùng chung đang ngoại tuyến. Kết nối lại Google Drive để lưu bản nháp.'
+        end
+        used = Dir.glob('*.md', base: directory).sum do |name|
+          path = File.join(directory, name)
+          File.file?(path) && !File.symlink?(path) ? File.size(path) : 0
+        end
+        raise ArgumentError, 'Kho skill đã đạt giới hạn 128 KB.' if used + body.bytesize + 1 > 131_072
+
+        filename = "skill-#{Time.now.strftime('%Y%m%d')}-#{SecureRandom.hex(4)}.md"
+        File.open(File.join(directory, filename), File::WRONLY | File::CREAT | File::EXCL | File::BINARY) do |file|
+          file.write(body + "\n")
+        end
+        @chat_dialog.execute_script("window.NepNhaChat.skillSaved(#{JSON.generate({ name: filename })})")
+      rescue StandardError => e
+        @chat_dialog.execute_script("window.NepNhaChat.skillSaved(#{JSON.generate({ error: e.message })})")
       end
 
       def run_chat_worker(payload)
@@ -232,7 +338,7 @@ module NepNhaDesign
         result_path = File.join(DATA_DIR, "chat-result-#{task_id}.json")
         payload = payload.merge(data_dir: DATA_DIR, result_path: result_path)
         secret_request = payload.key?(:token)
-        arguments = [background_python_path, '-I', '-S', '-X', 'utf8', '-u', CHAT_WORKER_PATH]
+        arguments = [background_python_path, '-I', '-X', 'utf8', '-u', CHAT_WORKER_PATH]
         if secret_request
           stdout_text, stderr_text, status = Open3.capture3(
             *arguments, stdin_data: JSON.generate(payload).encode(Encoding::UTF_8), binmode: true
@@ -485,6 +591,7 @@ module NepNhaDesign
     menu.add_item('Mở Trợ lý AI') { Setup.open_chat }
     menu.add_separator
     menu.add_item('Cài và kiểm tra') { Setup.install_and_check }
+    menu.add_item('Chọn kho skill dùng chung') { Setup.choose_shared_skills }
     menu.add_item('Xem cấu hình MCP nâng cao') { Setup.show_config }
     menu.add_separator
     menu.add_item('Bật cầu nối SketchUp') { Bridge.start }

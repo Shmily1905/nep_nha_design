@@ -19,6 +19,7 @@ def install_and_check(data_dir: Path) -> dict:
     dependency_check = (
         "from importlib.metadata import version; "
         "from mcp.server.fastmcp import FastMCP, Image; "
+        "import pypdfium2, PIL; "
         "raise SystemExit(version('mcp') != '1.29.0')"
     )
     ready = subprocess.run(

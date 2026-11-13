@@ -5,11 +5,12 @@ import asyncio
 import base64
 import binascii
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import Field
+from pydantic import BaseModel
 
 HOST = "127.0.0.1"
 PORT = 9876
@@ -117,6 +118,47 @@ async def ensure_tag(name: AssetName) -> dict[str, Any]:
 async def upsert_material(name: AssetName, hex_color: HexColor, opacity: Opacity = 1.0) -> dict[str, Any]:
     """Create a named material or update its color and opacity. Existing assignments see the update."""
     return await rpc("upsert_material", name=name, hex_color=hex_color, opacity=opacity)
+
+
+class Solid(BaseModel):
+    name: AssetName
+    footprint_mm: Annotated[list[tuple[float, float]], Field(min_length=3, max_length=32)]
+    base_mm: Annotated[float, Field(ge=-100_000, le=100_000)]
+    height_mm: Annotated[float, Field(ge=1, le=100_000)]
+    hex_color: HexColor
+    opacity: Opacity = 1.0
+    category: Literal["roof", "wall", "floor", "door", "window", "planter", "other"] = "other"
+
+
+@mcp.tool()
+async def edit_selection(
+    ids: Annotated[list[int], Field(min_length=1, max_length=100)],
+    action: Literal["rename", "material", "move_mm", "hide_edges"],
+    value: str | list[float] | None = None,
+) -> dict[str, Any]:
+    """Edit exactly the objects selected when the user sent the prompt. Rename
+    uses a string, material uses an existing SketchUp material name, move_mm
+    uses XYZ offsets, hide_edges hides only the explicitly selected edges."""
+    return await rpc("edit_selection", ids=ids, action=action, value=value)
+
+
+@mcp.tool()
+async def build_model(
+    build_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+    name: AssetName,
+    scale_basis: Annotated[str, Field(min_length=1, max_length=500)],
+    solids: Annotated[list[Solid], Field(min_length=1, max_length=200)],
+) -> dict[str, Any]:
+    """Add one editable SketchUp group of solid extrusions in mm. Give each solid
+    a simple XY polygon without a repeated closing vertex, base Z, height and
+    color. Split wall polygons around openings and use sill/header solids.
+    Describe the scale anchor or approved concept assumption in scale_basis.
+    Reuse the same ID and identical input when retrying an uncertain response.
+    """
+    return await rpc(
+        "build_model", build_id=build_id, name=name, scale_basis=scale_basis,
+        solids=[solid.model_dump(mode="json") for solid in solids],
+    )
 
 
 def main() -> None:

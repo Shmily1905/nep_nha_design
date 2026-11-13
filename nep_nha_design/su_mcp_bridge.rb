@@ -5,13 +5,15 @@ require 'socket'
 require 'json'
 require 'base64'
 require 'tmpdir'
+require 'digest'
+require_relative 'build_model'
 
 module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.4.3'
-    MAX_REQUEST = 16 * 1024
+    VERSION = '1.6.1'
+    MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8
     CHUNK = 64 * 1024
@@ -188,6 +190,10 @@ module NepNhaDesign
           ensure_tag(active_model, params)
         when 'upsert_material'
           upsert_material(active_model, params)
+        when 'build_model'
+          build_model(active_model, params)
+        when 'edit_selection'
+          edit_selection(active_model, params)
         else
           raise RPCError.new(-32601, 'Unknown method')
         end
@@ -198,6 +204,64 @@ module NepNhaDesign
         raise RPCError.new(-32001, 'Open a SketchUp model first') unless model
 
         model
+      end
+
+      def selection_info(model)
+        return [] unless model
+
+        model.selection.to_a.first(100).map do |entity|
+          {
+            id: entity.persistent_id, type: entity.typename,
+            name: entity.respond_to?(:name) ? entity.name : nil
+          }
+        end
+      end
+
+      def edit_selection(model, params)
+        entities = model.selection.to_a
+        ids = params['ids']
+        action = params['action']
+        value = params['value']
+        unless ids.is_a?(Array) && !ids.empty? && ids.length <= 100 &&
+               ids.all? { |id| id.is_a?(Integer) } &&
+               entities.map(&:persistent_id).sort == ids.sort
+          raise RPCError.new(-32602, 'Selection changed. Select the objects and send the prompt again.')
+        end
+        if action == 'hide_edges'
+          unless entities.all? { |entity| entity.is_a?(Sketchup::Edge) }
+            raise RPCError.new(-32602, 'Select only the specific edges to hide.')
+          end
+        else
+          unless entities.all? { |entity| (entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)) && !entity.locked? }
+            raise RPCError.new(-32602, 'Select unlocked groups or components.')
+          end
+        end
+        with_operation(model) do
+          case action
+          when 'hide_edges'
+            entities.each { |edge| edge.hidden = true }
+          when 'rename'
+            unless value.is_a?(String) && value.strip.length.between?(1, 100)
+              raise RPCError.new(-32602, 'Invalid name.')
+            end
+            entities.each { |entity| entity.name = value.strip }
+          when 'material'
+            material = value.is_a?(String) && model.materials[value]
+            raise RPCError.new(-32602, 'Material does not exist in this model.') unless material
+
+            entities.each { |entity| entity.material = material }
+          when 'move_mm'
+            unless value.is_a?(Array) && value.length == 3 &&
+                   value.all? { |number| number.is_a?(Numeric) && number.between?(-100_000, 100_000) }
+              raise RPCError.new(-32602, 'Provide XYZ offsets in millimeters.')
+            end
+            transform = Geom::Transformation.translation(value.map(&:mm))
+            model.active_entities.transform_entities(transform, entities)
+          else
+            raise RPCError.new(-32602, 'Unknown edit action.')
+          end
+          { edited_ids: ids, action: action }
+        end
       end
 
       def point_mm(point)

@@ -2,43 +2,44 @@
 
 ![Logo Nếp Nhà Design](nep_nha_design/logo.png)
 
-Trợ lý ChatGPT tiếng Việt trong SketchUp. Hỗ trợ đọc thông tin mô hình, chụp viewport,
-tạo Tag và vật liệu. Xem hướng dẫn cài đặt trong [HUONG_DAN.txt](nep_nha_design/HUONG_DAN.txt).
+Mã nguồn trợ lý kiến trúc chạy trong SketchUp. Thư mục làm việc dùng chung trên
+Windows là `E:\My Drive\14. SU MCP` và đồng thời là Git checkout của
+`Shmily1905/nep_nha_design`.
 
-## Đưa mã nguồn lên GitHub lần đầu
+- `nep_nha_design.rb` và `nep_nha_design/` chứa mã nguồn extension.
+- `design-skills/` chứa các quy tắc thiết kế dùng chung.
+- `nep_nha_design/design-skills/` chứa skill mặc định đi kèm gói cài đặt.
+- `scripts/build_rbz.py` kiểm tra phiên bản và đóng gói extension.
+- `releases/` chứa gói RBZ cục bộ và không được commit.
 
-1. Giải nén gói mã nguồn. Trong GitHub Desktop, chọn **File → Add local repository**,
-   chọn thư mục chứa README này, rồi chọn **Create a repository** nếu được hỏi.
-   Giữ README và tệp cấu hình đi kèm. Commit các tệp lên nhánh chính nếu chúng đang
-   ở tab **Changes**.
-2. Chọn **Publish repository**. Đặt tên, ví dụ `nep-nha-design`. Repository có
-   thể để **Private**. Từ v1.4.3, trợ lý đọc Release riêng tư bằng fine-grained
-   token chỉ có quyền `Contents: read`.
-3. Kiểm tra kho GitHub đã có `.github/workflows/release.yml`. Trong GitHub Desktop,
-   mở **History**, bấm chuột phải vào commit cần phát hành, chọn **Create Tag**
-   và đặt tên `v1.4.3`. Bấm **Push origin** để đẩy tag lên GitHub.
-4. Trên GitHub, kiểm tra tab **Actions**. Khi tác vụ phát hành hoàn tất, tab
-   **Releases** sẽ có `v1.4.3` và tệp `Nep-Nha-Design-Tro-Ly-ChatGPT-v1.4.3.rbz`.
+## Làm việc bằng Codex hoặc Antigravity
 
-## Kết nối nút cập nhật trong SketchUp
+Mở `E:\My Drive\14. SU MCP` làm thư mục dự án. Trong Antigravity App, thêm
+thư mục này vào Project và chọn Local mode. Cả hai trợ lý phải đọc
+`GEMINI.md` trước khi sửa.
 
-1. Mở **Extensions → Nếp Nhà Design → Mở Trợ lý AI → Cập nhật tiện ích**.
-2. Nhập `chủ-kho/tên-kho`, rồi bấm **Tạo mã đăng nhập**.
-3. Trên GitHub, chọn đúng repository và chỉ cấp `Contents: read`. Sao chép token,
-   dán vào trợ lý và bấm **Lưu đăng nhập**.
-4. Tiện ích lưu token trong Windows Credential Manager hoặc macOS Keychain và tự
-   kiểm tra cập nhật mỗi khi mở trợ lý. Khi có bản mới, bấm **Cập nhật lên X.Y.Z**.
-5. Lưu bản vẽ, đóng rồi mở lại SketchUp. Kiểm tra số phiên bản trong tiêu đề.
+Chỉ để một trợ lý sửa dự án tại một thời điểm. Đợi Google Drive đồng bộ trước
+khi chuyển lượt. Khi bàn giao, ghi các file đã sửa và cách kiểm tra.
 
-Token không được ghi vào repository hoặc tệp cấu hình. Có thể thu hồi token trên
-GitHub hoặc bấm **Đăng xuất GitHub** trong trợ lý.
+## Kiểm tra và phát hành
 
-Nếu SketchUp từ chối cài, kiểm tra chính sách nạp tiện ích của máy. Gói này chưa
-được ký số.
+Chạy kiểm tra đóng gói cục bộ bằng lệnh sau.
 
-## Phát hành các phiên bản sau
+```powershell
+python scripts/build_rbz.py --output-dir releases
+```
 
-Cập nhật số phiên bản trong các tệp mà `scripts/build_rbz.py` kiểm tra, commit,
-rồi đẩy tag `vX.Y.Z` tương ứng. GitHub Actions đóng gói RBZ, kiểm tra và đính kèm
-tệp vào GitHub Release. Trong SketchUp, bấm **Kiểm tra cập nhật → Cập nhật** khi
-có bản mới. Để đóng gói cục bộ, chạy `python scripts/build_rbz.py`.
+Sau khi kiểm tra, commit và push nhánh `main`. Để phát hành, cập nhật đồng bộ
+số phiên bản, tạo tag `vX.Y.Z` trên commit cần phát hành rồi push tag.
+GitHub Actions tạo gói RBZ và GitHub Release. Nút cập nhật trong SketchUp đọc
+Release mới nhất.
+
+## Kho skill dùng chung
+
+Trong SketchUp, mở **Extensions → Nếp Nhà Design → Chọn kho skill dùng chung**
+và chọn `E:\My Drive\14. SU MCP\design-skills`. Trợ lý đọc lại các file
+Markdown ở mỗi lượt. Khi Drive ngoại tuyến, trợ lý dùng bản nội dung đã lưu
+cục bộ sau lần đọc thành công gần nhất.
+
+Extension đã cài chạy từ thư mục Plugins của SketchUp. Python, log và cấu hình
+MCP nằm tại `%LOCALAPPDATA%\NepNhaDesign`.

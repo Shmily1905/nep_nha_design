@@ -11,6 +11,7 @@
     header { display:flex; align-items:center; gap:11px; padding:14px 16px; color:white; background:var(--green); }
     .mark { display:block; width:60px; height:46px; object-fit:contain; background:white; border-radius:7px; padding:3px; }
     h1 { margin:0; font-size:17px; } header p { margin:1px 0 0; opacity:.75; font-size:12px; }
+    .version { align-self:flex-start; margin-left:auto; font-size:11px; opacity:.8; white-space:nowrap; }
     body { height:100vh; display:flex; flex-direction:column; }
     #messages { flex:1; min-height:80px; overflow:auto; padding:16px; }
     select { max-width:155px; }
@@ -43,8 +44,8 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp · Giai đoạn 1</p></div></header>
-  <main id="messages"><div class="message assistant">Xin chào. Tôi có thể kiểm tra model, đọc kích thước bao, chụp góc nhìn, tạo Tag và vật liệu. Giai đoạn dựng tường, sàn và cửa sẽ được bổ sung tiếp theo.</div></main>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.6.1">v1.6.1</span></header>
+  <main id="messages"><div class="message assistant">Đính kèm mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
     <div class="auth-actions"><button class="link" id="login" hidden>Tiếp tục với ChatGPT</button><button class="link" id="install" hidden>Cài thành phần ChatGPT</button></div>
@@ -52,11 +53,26 @@
   </section>
   <footer>
     <textarea id="prompt" placeholder="Ví dụ: Kiểm tra model hiện tại giúp tôi"></textarea>
+    <div class="auth-actions">
+      <button class="link" id="pickPlan">Chọn mặt bằng</button>
+      <button class="link" id="pickReference">Thêm ảnh tham chiếu</button>
+      <button class="link" id="openSkills">Mở kho skill</button>
+      <button class="link" id="draftSkill">Soạn skill từ chat</button>
+    </div>
+    <section id="skillReview" hidden>
+      <label for="skillContent">Bản nháp skill</label>
+      <textarea id="skillContent"></textarea>
+      <button class="link" id="saveSkill">Lưu vào kho</button>
+      <button class="link" id="cancelSkill">Bỏ bản nháp</button>
+      <p id="skillStatus" role="status"></p>
+    </section>
+    <div id="attachments" aria-live="polite"></div>
+    <label id="pdfPageRow" hidden>Trang PDF <input id="pdfPage" type="number" min="1" value="1"></label>
     <div class="actions"><button class="reset" id="reset">Cuộc trò chuyện mới</button><label>Model <select id="model"><option value="">Tự động</option></select></label><button class="send" id="send" disabled>Gửi</button></div>
     <p class="hint" id="modelStatus"></p>
     <label><input type="checkbox" id="fast"> Phản hồi nhanh</label>
     <details>
-      <summary>Cập nhật tiện ích · 1.4.3</summary>
+      <summary>Cập nhật tiện ích</summary>
       <label>Kho GitHub phát hành <input id="repository" placeholder="chủ-kho/tên-kho" spellcheck="false"></label>
       <div class="github-row"><span class="dot" id="githubDot"></span><span class="hint" id="githubStatus">Đang kiểm tra đăng nhập GitHub…</span></div>
       <div class="github-row" id="githubLogin">
@@ -169,16 +185,84 @@
         return item;
       }
 
+      let attachments = [];
+      function renderAttachments() {
+        document.getElementById('pdfPageRow').hidden = !attachments.some(
+          file => file.role === 'plan' && /\.pdf$/i.test(file.name)
+        );
+        const list = document.getElementById('attachments');
+        list.replaceChildren();
+        attachments.forEach((file, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'link';
+          const label = file.role === 'plan' ? 'Mặt bằng' : 'Tham chiếu';
+          button.textContent = `${label}: ${file.name} ×`;
+          button.setAttribute('aria-label', `Bỏ ảnh ${file.name}`);
+          button.addEventListener('click', () => {
+            if (busy) return;
+            attachments.splice(index, 1);
+            renderAttachments();
+          });
+          list.appendChild(button);
+        });
+      }
+      document.getElementById('pickPlan').onclick = () => {
+        if (!busy) window.sketchup.nep_nha_pick_image('plan');
+      };
+      document.getElementById('pickReference').onclick = () => {
+        if (!busy && attachments.filter(file => file.role === 'reference').length < 5)
+          window.sketchup.nep_nha_pick_image('reference');
+      };
+      document.getElementById('openSkills').onclick = () => window.sketchup.nep_nha_skills();
+      const review = document.getElementById('skillReview');
+      const skillContent = document.getElementById('skillContent');
+      const skillStatus = document.getElementById('skillStatus');
+      const saveSkill = document.getElementById('saveSkill');
+      document.getElementById('draftSkill').onclick = () => {
+        if (busy || !authReady || !review.hidden) return;
+        busy = true; send.disabled = model.disabled = true;
+        const wait = add('Đang soạn bản nháp skill…', 'assistant thinking');
+        wait.id = 'waiting';
+        window.sketchup.nep_nha_send(JSON.stringify({
+          prompt: prompt.value.trim() || 'Rút ra quy tắc thiết kế từ cuộc trò chuyện này.',
+          draft_skill: true, model: model.value
+        }));
+      };
+      saveSkill.onclick = () => {
+        saveSkill.disabled = true;
+        window.sketchup.nep_nha_save_skill(skillContent.value);
+      };
+      document.getElementById('cancelSkill').onclick = () => { review.hidden = true; };
+
       function submit() {
         const text = prompt.value.trim();
         if (!text || busy) return;
         if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
-        add(text, 'user'); prompt.value = ''; busy = true; send.disabled = model.disabled = true;
+        const images = attachments.map(({role, path}) => ({role, path}));
+        const names = attachments.map(file => file.name);
+        add([text, ...names].join('\n'), 'user'); prompt.value = ''; busy = true; send.disabled = model.disabled = true;
         const wait = add('Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
-        window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked}));
+        const pdf_page = Number(document.getElementById('pdfPage').value);
+        window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked, images, pdf_page}));
       }
 
       window.NepNhaChat = {
+        skillSaved(result) {
+          saveSkill.disabled = false;
+          if (result.error) { skillStatus.textContent = result.error; return; }
+          review.hidden = true;
+          add(`Đã lưu skill vào kho (${result.name}).`, 'assistant');
+        },
+        attach(file) {
+          if (file.role === 'plan') {
+            attachments = attachments.filter(item => item.role !== 'plan');
+            document.getElementById('pdfPage').value = '1';
+          }
+          if (attachments.some(item => item.path === file.path && item.role === file.role)) return;
+          attachments.push(file);
+          renderAttachments();
+        },
         repository(value) {
           if (value && document.activeElement !== repository) {
             repository.value = value;
@@ -188,9 +272,19 @@
         },
         receive(result) {
           const wait = document.getElementById('waiting'); if (wait) wait.remove();
+          if (result.offline_skills) add('Drive đang ngoại tuyến. Đang dùng bản skill cục bộ.', 'assistant');
           busy = false; send.disabled = !authReady; model.disabled = false;
           if (result.reset) {
+            review.hidden = true;
+            attachments = [];
+            renderAttachments();
             messages.replaceChildren(); add('Đã bắt đầu cuộc trò chuyện mới.', 'assistant');
+          } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {
+            skillContent.value = result.text;
+            skillStatus.textContent = '';
+            review.hidden = false;
+            skillContent.focus();
+            return;
           } else if (result.ok) {
             const images = result.images || [];
             add(result.text || 'Đã hoàn tất.', 'assistant', images[images.length - 1]);

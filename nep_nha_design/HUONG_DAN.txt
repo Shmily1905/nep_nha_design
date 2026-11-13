@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.4.3 · Giai đoạn 1
+Phiên bản 1.6.1
 
 1. Trong SketchUp, mở Extensions > Extension Manager > Install Extension.
 2. Chọn tệp RBZ này và khởi động lại SketchUp.
@@ -11,8 +11,20 @@ Phiên bản 1.4.3 · Giai đoạn 1
    - Nếu thấy “Cài thành phần ChatGPT”, bấm nút đó và chờ hoàn tất.
    - Bấm “Tiếp tục với ChatGPT”. Trình duyệt sẽ mở để bạn đăng nhập.
    - Khi trạng thái chuyển thành “Đã kết nối”, nhập yêu cầu và bấm Gửi.
-6. Thử: “Kiểm tra kết nối”, “Đọc thông tin model” hoặc
-   “Chụp góc nhìn hiện tại”.
+6. Mở model trống, chọn “Chọn mặt bằng” rồi thêm từ một đến năm ảnh
+   tham chiếu nếu có. Ảnh hỗ trợ PNG, JPEG và WebP. Mỗi ảnh tối đa 10 MB,
+   tổng ảnh tối đa 25 MB. Ví dụ yêu cầu:
+   “Dựng tầng trệt theo mặt bằng. Cạnh ngang ngoài cùng dài 6.000 mm.
+   Dùng bảng màu và kiểu nội thất của ảnh tham chiếu.”
+7. Khi mặt bằng thiếu số đo, cung cấp chiều dài thật giữa hai mốc rõ ràng
+   hoặc yêu cầu dựng concept theo tỷ lệ ước lượng. Model được thêm dưới
+   dạng nhóm có thể chỉnh sửa trong file đang mở. Kiểm tra rồi lưu .skp.
+8. Chọn “Mở kho skill” để sửa hoặc thêm file Markdown UTF-8. Trợ lý đọc
+   lại kho ở mỗi lượt. Trên Windows, kho nằm tại
+   %LOCALAPPDATA%\NepNhaDesign\design-skills theo mặc định. Để dùng kho
+   trên Drive, chọn Extensions > Nếp Nhà Design > Chọn kho skill dùng chung.
+   Chọn thư mục design-skills. Khi Drive ngoại tuyến, trợ lý đọc bản đã
+   lưu trên máy. Kết nối lại Drive để lưu skill mới vào kho dùng chung.
 
 Không cần tạo hoặc dán OpenAI API key. Người dùng gói ChatGPT đủ điều kiện có
 thể dùng hạn mức của gói; giới hạn sử dụng vẫn phụ thuộc tài khoản và chính sách

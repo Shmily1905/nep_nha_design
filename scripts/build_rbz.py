@@ -8,25 +8,36 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "nep_nha_design"
+PACKAGE_FILES = [
+    "HUONG_DAN.txt",
+    "build_model.rb",
+    "cai_dat_mcp.py",
+    "chat.html",
+    "chat_worker.py",
+    "github_credential.py",
+    "logo.png",
+    "main.rb",
+    "mcp_server.py",
+    "requirements.txt",
+    "su_mcp_bridge.rb",
+    "update_worker.py",
+]
 FILES = [
     "nep_nha_design.rb",
-    *(f"nep_nha_design/{name}" for name in (
-        "HUONG_DAN.txt", "cai_dat_mcp.py", "chat.html", "chat_worker.py",
-        "github_credential.py", "logo.png", "main.rb", "mcp_server.py", "requirements.txt",
-        "su_mcp_bridge.rb", "update_worker.py",
-    )),
+    *(f"nep_nha_design/{name}" for name in PACKAGE_FILES),
+    *(path.relative_to(ROOT).as_posix() for path in sorted((PACKAGE / "design-skills").glob("*.md"))),
 ]
 VERSIONS = {
     "nep_nha_design.rb": r"extension\.version = '([^']+)'",
     "nep_nha_design/main.rb": r"VERSION = '([^']+)'",
     "nep_nha_design/su_mcp_bridge.rb": r"VERSION = '([^']+)'",
     "nep_nha_design/chat_worker.py": r'"version": "([^"]+)"',
-    "nep_nha_design/chat.html": r"Cập nhật tiện ích · ([\d.]+)",
+    "nep_nha_design/chat.html": r'aria-label="Phiên bản ([\d.]+)"',
     "nep_nha_design/HUONG_DAN.txt": r"Phiên bản ([\d.]+)",
 }
 
 
-def build(output_dir, expected_tag):
+def build(output_dir: Path, expected_tag: str | None) -> Path:
     version = None
     for filename, pattern in VERSIONS.items():
         match = re.search(pattern, (ROOT / filename).read_text(encoding="utf-8"))
@@ -40,6 +51,10 @@ def build(output_dir, expected_tag):
 
     for source in PACKAGE.glob("*.py"):
         ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+
+    missing = [filename for filename in FILES if not (ROOT / filename).is_file()]
+    if missing:
+        raise SystemExit(f"Missing package files: {', '.join(missing)}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"Nep-Nha-Design-Tro-Ly-ChatGPT-v{version}.rbz"
@@ -55,5 +70,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
     parser.add_argument("--tag", help="Required version tag when building a GitHub release.")
-    args = parser.parse_args()
-    print(build(args.output_dir, args.tag))
+    arguments = parser.parse_args()
+    print(build(arguments.output_dir, arguments.tag))
