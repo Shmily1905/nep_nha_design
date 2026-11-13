@@ -23,6 +23,18 @@ jobs:
         run: |
           ruby -c nep_nha_design.rb
           for script in nep_nha_design/*.rb; do ruby -c "$script" || exit 1; done
+          ruby <<'RUBY'
+          $LOADED_FEATURES << 'sketchup.rb'
+          require_relative 'nep_nha_design/su_mcp_bridge'
+          bridge = NepNhaDesign::Bridge
+          model = Struct.new(:selection).new([])
+          abort 'Empty selection failed' unless bridge.selection_info(model) == []
+          entity = Struct.new(:persistent_id, :typename, :name).new(123, 'Group', 'Wall')
+          model.selection << entity
+          abort 'Selection snapshot failed' unless bridge.selection_info(model) == [
+            { id: 123, type: 'Group', name: 'Wall' }
+          ]
+          RUBY
           python3 scripts/build_rbz.py --tag "$GITHUB_REF_NAME"
           unzip -t "dist/Nep-Nha-Design-Tro-Ly-ChatGPT-$GITHUB_REF_NAME.rbz"
       - name: Tạo GitHub Release
