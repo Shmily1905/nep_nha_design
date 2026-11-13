@@ -27,7 +27,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.6.4'
+    VERSION = '1.6.5'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -238,17 +238,15 @@ module NepNhaDesign
 
       def pick_attachment(role)
         is_plan = role == 'plan'
-        # Combined PDF/image filters are unreliable in SketchUp on Windows.
-        # Show all plan files, then enforce supported extensions ourselves.
-        filter = is_plan ? '*.*' : 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
-        title = is_plan ? 'Chọn mặt bằng PDF hoặc ảnh' : 'Chọn ảnh tham chiếu'
+        filter = 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
+        title = is_plan ? 'Chọn ảnh mặt bằng' : 'Chọn ảnh tham chiếu'
         path = UI.openpanel(title, '', filter)
         return unless path
 
-        allowed = is_plan ? %w[.pdf .png .jpg .jpeg .webp] : %w[.png .jpg .jpeg .webp]
+        allowed = %w[.png .jpg .jpeg .webp]
         unless allowed.include?(File.extname(path).downcase)
           message = if is_plan
-                      'Mặt bằng chỉ hỗ trợ PDF, PNG, JPG, JPEG hoặc WebP.'
+                      'Ảnh mặt bằng chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
                     else
                       'Ảnh tham chiếu chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
                     end

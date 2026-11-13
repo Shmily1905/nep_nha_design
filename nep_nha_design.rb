@@ -7,7 +7,7 @@ module NepNhaDesign
   unless file_loaded?(__FILE__)
     extension = SketchupExtension.new('Nếp Nhà Design – Trợ lý AI', 'nep_nha_design/main')
     extension.description = 'Chat với trợ lý AI ngay trong SketchUp và điều khiển mô hình qua công cụ tham số.'
-    extension.version = '1.6.4'
+    extension.version = '1.6.5'
     extension.creator = 'Nếp Nhà Design'
     Sketchup.register_extension(extension, true)
     file_loaded(__FILE__)

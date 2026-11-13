@@ -12,7 +12,7 @@ module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.6.4'
+    VERSION = '1.6.5'
     MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8

@@ -44,8 +44,8 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.6.4">v1.6.4</span></header>
-  <main id="messages"><div class="message assistant">Đính kèm mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.6.5">v1.6.5</span></header>
+  <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
     <div class="auth-actions"><button class="link" id="login" hidden>Tiếp tục với ChatGPT</button><button class="link" id="install" hidden>Cài thành phần ChatGPT</button></div>
@@ -54,7 +54,7 @@
   <footer>
     <textarea id="prompt" placeholder="Ví dụ: Kiểm tra model hiện tại giúp tôi"></textarea>
     <div class="auth-actions">
-      <button class="link" id="pickPlan">Chọn mặt bằng</button>
+      <button class="link" id="pickPlan">Chọn ảnh mặt bằng</button>
       <button class="link" id="pickReference">Thêm ảnh tham chiếu</button>
       <button class="link" id="openSkills">Mở kho skill</button>
       <button class="link" id="draftSkill">Soạn skill từ chat</button>
@@ -207,12 +207,17 @@
           list.appendChild(button);
         });
       }
+      function callPicker(name, legacyRole) {
+        if (typeof window.sketchup[name] === 'function') window.sketchup[name]();
+        else if (typeof window.sketchup.nep_nha_pick_image === 'function')
+          window.sketchup.nep_nha_pick_image(legacyRole);
+      }
       document.getElementById('pickPlan').onclick = () => {
-        if (!busy) window.sketchup.nep_nha_pick_plan();
+        if (!busy) callPicker('nep_nha_pick_plan', 'plan');
       };
       document.getElementById('pickReference').onclick = () => {
         if (!busy && attachments.filter(file => file.role === 'reference').length < 5)
-          window.sketchup.nep_nha_pick_reference();
+          callPicker('nep_nha_pick_reference', 'reference');
       };
       document.getElementById('openSkills').onclick = () => window.sketchup.nep_nha_skills();
       const review = document.getElementById('skillReview');

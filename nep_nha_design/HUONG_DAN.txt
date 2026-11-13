@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.6.4
+Phiên bản 1.6.5
 
 Mái hông với 1001bit Pro
 - Trong chat, yêu cầu chuẩn bị mặt mái hông và cung cấp đường bao ngoài
