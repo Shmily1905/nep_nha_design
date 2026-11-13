@@ -3,6 +3,74 @@
 module NepNhaDesign
   module Bridge
     class << self
+      def build_auto_concept(model, geometry)
+        raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
+
+        footprint = geometry.fetch('footprint_mm')
+        height = geometry.fetch('height_mm')
+        roof_faces = geometry.fetch('roof_faces_mm')
+        unless valid_footprint?(footprint) && height.is_a?(Numeric) && height.between?(500, 30_000)
+          raise ArgumentError, 'Đường bao hoặc chiều cao tầng không hợp lệ.'
+        end
+
+        with_operation(model) do
+          root = model.entities.add_group
+          root.name = 'Concept ngoại thất Nếp Nhà'
+          body = root.entities.add_group
+          body.name = 'Thân nhà — khối trắng'
+          face = body.entities.add_face(footprint.map { |x, y| Geom::Point3d.new(x.mm, y.mm, 0) })
+          raise ArgumentError, 'SketchUp không tạo được mặt đường bao.' unless face
+
+          face.reverse! if face.normal.z < 0
+          face.pushpull(height.mm)
+          bounds = body.bounds
+          unless body.manifold? && bounds.min.z.to_mm.abs < 0.1 && (bounds.max.z.to_mm - height).abs < 0.1
+            raise ArgumentError, 'SketchUp không tạo được khối thân nhà đúng cao độ.'
+          end
+
+          roof_status = :unsupported
+          if roof_faces.any?
+            roof = root.entities.add_group
+            roof.name = 'Mái hông'
+            begin
+              add_concept_roof(roof.entities, geometry)
+              roof_status = :built
+            rescue StandardError => e
+              roof.erase!
+              roof_status = :failed
+              warn "[Nếp Nhà Design] Concept roof: #{e.class}: #{e.message}"
+            end
+          end
+          { width: bounds.width.to_mm.round, depth: bounds.height.to_mm.round, roof: roof_status }
+        end
+      end
+
+      def add_concept_roof(entities, geometry)
+        geometry.fetch('roof_faces_mm').each do |polygon|
+          surface = entities.add_face(polygon.map { |point| Geom::Point3d.new(point.map(&:mm)) })
+          raise ArgumentError, 'SketchUp không tạo được mặt dốc của mái.' unless surface
+
+          surface.reverse! if surface.normal.z < 0
+        end
+        pitch = geometry.fetch('pitch') * Math::PI / 180
+        eave = geometry.fetch('height_mm') - geometry.fetch('overhang_mm') * Math.tan(pitch)
+        fascia = geometry.fetch('fascia_mm').mm
+        eave_segments = []
+        entities.grep(Sketchup::Edge).each do |edge|
+          faces = edge.faces
+          if faces.length == 2 && faces[0].normal.samedirection?(faces[1].normal)
+            edge.hidden = true
+          elsif faces.length == 1
+            a, b = edge.vertices.map(&:position)
+            eave_segments << [a, b] if [a, b].all? { |point| (point.z.to_mm - eave).abs < 0.1 }
+          end
+        end
+        eave_segments.each do |a, b|
+          entities.add_face(a, b, Geom::Point3d.new(b.x, b.y, b.z - fascia),
+                            Geom::Point3d.new(a.x, a.y, a.z - fascia))
+        end
+      end
+
       def prepare_hip_roof_face(model, params)
         id = params['roof_id']
         polygon = params['footprint_mm']

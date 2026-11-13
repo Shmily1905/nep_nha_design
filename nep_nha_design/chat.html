@@ -52,7 +52,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.7.2">v1.7.2</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.7.3">v1.7.3</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -77,6 +77,9 @@
     <div id="attachments" aria-live="polite"></div>
     <details id="conceptPanel" hidden>
       <summary>Concept ngoại thất</summary>
+      <label>Cạnh dài nhất của tường ngoài (mm) <input id="autoLength" type="number" min="500" max="100000" step="1" placeholder="16600"></label>
+      <label>Chiều cao tầng (mm) <input id="autoHeight" type="number" min="500" max="30000" step="1" placeholder="3900"></label>
+      <button type="button" class="link" id="autoConcept">Tự nhận diện và dựng 3D</button>
       <div class="auth-actions">
         <button type="button" class="link" id="tracePlan">Nhận diện đường bao</button>
         <button type="button" class="link" id="undoVertex">Bỏ đỉnh cuối</button>
@@ -259,6 +262,8 @@
         outline = [];
         frontEdge.value = '';
         conceptWidth.value = '';
+        document.getElementById('autoLength').value = '';
+        document.getElementById('autoHeight').value = '';
         estimateScale.checked = false;
         planImage.removeAttribute('src');
         conceptPanel.hidden = true;
@@ -299,6 +304,18 @@
       };
       document.getElementById('tracePlan').onclick = () => {
         if (planImage.naturalWidth) submit({trace_plan:true});
+      };
+      document.getElementById('autoConcept').onclick = () => {
+        const length = document.getElementById('autoLength');
+        const height = document.getElementById('autoHeight');
+        for (const field of [length, height]) {
+          if (!field.value || !field.checkValidity()) {
+            outlineStatus.textContent = 'Nhập cạnh dài nhất và chiều cao tầng theo milimet, trong khoảng cho phép.';
+            field.focus();
+            return;
+          }
+        }
+        submit({auto_concept:{length_mm:length.valueAsNumber, height_mm:height.valueAsNumber}});
       };
       document.getElementById('buildConcept').onclick = () => {
         if (busy) return;
@@ -380,17 +397,19 @@
 
       function submit(options = {}) {
         const tracing = options.trace_plan === true;
-        const text = tracing ? 'Nhận diện đường bao tường ngoài' :
+        const automatic = options.auto_concept;
+        const text = automatic ? `Dựng 3D tự động · cạnh dài nhất ${automatic.length_mm} mm · cao tầng ${automatic.height_mm} mm` :
+          tracing ? 'Nhận diện đường bao tường ngoài' :
           (prompt.value.trim() || (options.concept ? 'Dựng concept ngoại thất theo đường bao đã duyệt và ảnh tham chiếu.' : ''));
         if (!text || busy) return;
         if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
-        const files = tracing ? attachments.filter(file => file.role === 'plan') : attachments;
+        const files = tracing || automatic ? attachments.filter(file => file.role === 'plan') : attachments;
         const images = files.map(({role, path, purpose}) => ({role, path, purpose}));
         const names = files.map(file => file.name);
         add([text, ...names].join('\n'), 'user');
-        if (!tracing) prompt.value = '';
+        if (!tracing && !automatic) prompt.value = '';
         busy = true; send.disabled = model.disabled = true;
-        const wait = add('Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
+        const wait = add(automatic ? 'Đang nhận diện tường ngoài và dựng khối 3D…' : 'Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
         const pdf_page = Number(document.getElementById('pdfPage').value);
         window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked, images, pdf_page, ...options}));
       }
@@ -416,6 +435,7 @@
           if (!attachments.some(file => file.role === 'plan' && file.path === path)) return;
           planImage.src = src;
           conceptPanel.hidden = false;
+          conceptPanel.open = true;
         },
         previewError(message) { add(message, 'error'); },
         repository(value) {
@@ -439,6 +459,11 @@
             outline = result.outline;
             frontEdge.value = '';
             updateOutline();
+            if (result.text) {
+              outlineStatus.textContent = 'Đường bao tường ngoài dùng để dựng 3D.';
+              add(result.text, 'assistant');
+              return;
+            }
             outlineStatus.textContent = 'Kiểm tra đường bao, kéo đỉnh nếu cần và chọn cạnh mặt tiền.';
             return;
           } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {

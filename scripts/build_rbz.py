@@ -15,6 +15,7 @@ PACKAGE_FILES = [
     "chat.html",
     "chat_worker.py",
     "github_credential.py",
+    "hip_roof.py",
     "logo.png",
     "main.rb",
     "mcp_server.py",

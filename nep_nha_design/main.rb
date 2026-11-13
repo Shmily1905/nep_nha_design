@@ -28,7 +28,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.7.2'
+    VERSION = '1.7.3'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -299,6 +299,13 @@ module NepNhaDesign
         }
         payload[:concept] = request['concept'] if request.key?('concept')
         payload[:action] = 'trace_plan' if request['trace_plan'] == true
+        model = Sketchup.active_model
+        if request.key?('auto_concept')
+          raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
+
+          payload[:action] = 'auto_concept'
+          payload[:dimensions] = request['auto_concept']
+        end
         dialog = @chat_dialog
         @chat_busy = true
         queue = Queue.new
@@ -313,6 +320,27 @@ module NepNhaDesign
           @chat_busy = false
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
+          geometry = result.delete('concept_geometry')
+          if geometry
+            begin
+              raise ArgumentError, 'Model đã đổi trong lúc nhận diện. Hãy bấm dựng lại.' unless Sketchup.active_model == model
+
+              bounds = Bridge.build_auto_concept(model, geometry)
+              text = "Đã dựng khối trắng #{bounds[:width]} × #{bounds[:depth]} mm, cao tầng #{geometry['height_mm']} mm. " \
+                     "Cạnh dài nhất lấy theo #{geometry['length_mm']} mm."
+              result['text'] = case bounds[:roof]
+                               when :built
+                                 "#{text} Đã dựng mái hông dốc #{geometry['pitch']}°, đua #{geometry['overhang_mm']} mm."
+                               when :unsupported
+                                 "#{text} Đường bao này nằm ngoài phạm vi dựng mái hông tự động."
+                               else
+                                 "#{text} SketchUp gặp lỗi khi tạo các mặt mái. Khối thân nhà đã được giữ lại."
+                               end
+            rescue StandardError => e
+              result['ok'] = false
+              result['error'] = "Không dựng được concept: #{e.message}"
+            end
+          end
           @thread_id = result['thread_id'] if result['ok'] && result['thread_id'] && !payload[:action]
           result['draft_skill'] = draft if result['ok']
           send_to_chat(result)

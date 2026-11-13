@@ -1,7 +1,11 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.7.2
+Phiên bản 1.7.3
 
 Concept ngoại thất
+- Chọn ảnh mặt bằng, nhập cạnh dài nhất của tường ngoài và chiều cao tầng (mm).
+  Bấm “Tự nhận diện và dựng 3D” để dựng khối trắng và mái hông tự động.
+  Mái mặc định dốc 30°, đua 500 mm, diềm 150 mm. Hỗ trợ đường bao lồi và chữ L
+  vuông góc. Với đường bao lõm khác, kết quả gồm khối thân nhà.
 - Chọn ảnh mặt bằng rồi mở “Concept ngoại thất”. Bấm “Nhận diện đường bao”
   hoặc tự bấm các góc ngoài theo thứ tự. Kéo đỉnh để hiệu chỉnh.
 - Chọn cạnh mặt tiền trong danh sách, cạnh được đánh dấu màu cam.
