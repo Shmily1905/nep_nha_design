@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.7.1
+Phiên bản 1.7.2
 
 Concept ngoại thất
 - Chọn ảnh mặt bằng rồi mở “Concept ngoại thất”. Bấm “Nhận diện đường bao”
