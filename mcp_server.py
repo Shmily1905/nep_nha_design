@@ -1,0 +1,136 @@
+"""Local stdio MCP server for the SketchUp AI Architect Ruby bridge."""
+
+import argparse
+import asyncio
+import base64
+import binascii
+import json
+from typing import Annotated, Any
+from uuid import uuid4
+
+from mcp.server.fastmcp import FastMCP, Image
+from pydantic import Field
+
+HOST = "127.0.0.1"
+PORT = 9876
+MAX_IMAGE = 4 * 1024 * 1024
+MAX_REPLY = 6 * 1024 * 1024
+mcp = FastMCP("Nếp Nhà Design")
+
+ImageSize = Annotated[int, Field(ge=64, le=1600, strict=True)]
+AssetName = Annotated[str, Field(min_length=1, max_length=100)]
+HexColor = Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$")]
+Opacity = Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+class BridgeError(RuntimeError):
+    """SketchUp rejected the request or the local bridge was unavailable."""
+
+
+async def rpc(method: str, **params: Any) -> dict[str, Any]:
+    request_id = uuid4().hex
+    request = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": params,
+    }
+    writer = None
+    sent = False
+    try:
+        async with asyncio.timeout(30):
+            reader, writer = await asyncio.open_connection(HOST, PORT, limit=MAX_REPLY)
+            writer.write(json.dumps(request, allow_nan=False).encode("utf-8") + b"\n")
+            sent = True
+            await writer.drain()
+            line = await reader.readuntil(b"\n")
+    except (TimeoutError, OSError, asyncio.IncompleteReadError, asyncio.LimitOverrunError) as exc:
+        if not sent:
+            message = "Could not reach SketchUp on 127.0.0.1:9876. Start the Ruby bridge."
+        else:
+            message = "No complete bridge reply. Check the active model before retrying a mutation."
+        raise BridgeError(message) from exc
+    finally:
+        if writer is not None:
+            writer.close()
+
+    try:
+        reply = json.loads(line)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BridgeError("Invalid JSON from the SketchUp bridge.") from exc
+
+    if not isinstance(reply, dict) or reply.get("jsonrpc") != "2.0" or reply.get("id") != request_id:
+        raise BridgeError("SketchUp bridge reply did not match the request.")
+    if "error" in reply:
+        error = reply["error"]
+        if isinstance(error, dict) and "result" not in reply:
+            raise BridgeError(f"SketchUp RPC {error.get('code')}: {error.get('message')}")
+        raise BridgeError("Invalid error envelope from the SketchUp bridge.")
+    if not isinstance(reply.get("result"), dict):
+        raise BridgeError("Missing object result from the SketchUp bridge.")
+    return reply["result"]
+
+
+@mcp.tool()
+async def ping_sketchup() -> dict[str, Any]:
+    """Check the SketchUp bridge and report its SketchUp and Ruby versions."""
+    return await rpc("ping_sketchup")
+
+
+@mcp.tool()
+async def get_model_info() -> dict[str, Any]:
+    """Read the active model's title, root entity count, and bounds in millimeters."""
+    return await rpc("get_model_info")
+
+
+@mcp.tool()
+async def clear_scene(confirm: Annotated[bool, Field(strict=True)] = False) -> dict[str, Any]:
+    """Delete all root entities of the active model in one undoable operation. Requires explicit user authorization."""
+    if confirm is not True:
+        raise BridgeError("Set confirm=true only after the user authorizes deleting the active model's entities.")
+    return await rpc("clear_scene", confirm=confirm)
+
+
+@mcp.tool()
+async def capture_viewport(width: ImageSize = 960, height: ImageSize = 540) -> Image:
+    """Return a JPEG of the active SketchUp viewport as MCP image content. Dimensions are pixels."""
+    result = await rpc("capture_viewport", width=width, height=height)
+    encoded = result.get("image_base64")
+    if result.get("mime_type") != "image/jpeg" or not isinstance(encoded, str):
+        raise BridgeError("The bridge did not return a JPEG.")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise BridgeError("Invalid Base64 viewport image.") from exc
+    if len(data) > MAX_IMAGE or not data.startswith(b"\xff\xd8") or not data.endswith(b"\xff\xd9"):
+        raise BridgeError("Invalid or oversized JPEG viewport image.")
+    return Image(data=data, format="jpeg")
+
+
+@mcp.tool()
+async def ensure_tag(name: AssetName) -> dict[str, Any]:
+    """Find or create a model Tag by name. Returns whether it was created."""
+    return await rpc("ensure_tag", name=name)
+
+
+@mcp.tool()
+async def upsert_material(name: AssetName, hex_color: HexColor, opacity: Opacity = 1.0) -> dict[str, Any]:
+    """Create a named material or update its color and opacity. Existing assignments see the update."""
+    return await rpc("upsert_material", name=name, hex_color=hex_color, opacity=opacity)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ping", action="store_true", help="Check the bridge without an MCP client.")
+    args = parser.parse_args()
+    if args.ping:
+        try:
+            print(json.dumps(asyncio.run(ping_sketchup()), ensure_ascii=False, indent=2))
+        except BridgeError as exc:
+            parser.exit(1, f"{exc}\n")
+    else:
+        mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

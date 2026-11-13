@@ -1,0 +1,31 @@
+NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
+Phiên bản 1.4.2 · Giai đoạn 1
+
+1. Trong SketchUp, mở Extensions > Extension Manager > Install Extension.
+2. Chọn tệp RBZ này và khởi động lại SketchUp.
+   Nếu từng chép su_mcp_bridge.rb bản cũ vào thư mục Plugins, hãy chuyển tệp cũ
+   ra ngoài trước để tránh lỗi cổng 9876.
+3. Chọn Extensions > Nếp Nhà Design > Mở Trợ lý AI.
+4. Lần đầu, tiện ích tự cài phần Python/MCP. Máy cần Python 3.11 trở lên.
+5. Trong bảng chat:
+   - Nếu thấy “Cài thành phần ChatGPT”, bấm nút đó và chờ hoàn tất.
+   - Bấm “Tiếp tục với ChatGPT”. Trình duyệt sẽ mở để bạn đăng nhập.
+   - Khi trạng thái chuyển thành “Đã kết nối”, nhập yêu cầu và bấm Gửi.
+6. Thử: “Kiểm tra kết nối”, “Đọc thông tin model” hoặc
+   “Chụp góc nhìn hiện tại”.
+
+Không cần tạo hoặc dán OpenAI API key. Người dùng gói ChatGPT đủ điều kiện có
+thể dùng hạn mức của gói; giới hạn sử dụng vẫn phụ thuộc tài khoản và chính sách
+hiện hành của OpenAI.
+
+Bridge chỉ nghe trên máy cục bộ tại 127.0.0.1:9876. Có thể tắt bridge trong menu
+của tiện ích. Tệp RBZ này chưa ký số.
+
+Model: chọn Tự động hoặc một model từ danh sách Codex. Đổi model mở cuộc chat mới.
+Phản hồi nhanh: mặc định bật, dùng mức suy luận thấp. Bỏ chọn để dùng mức mặc định.
+
+Cập nhật: nhập kho GitHub công khai chính thức của Nếp Nhà Design (chủ-kho/tên-kho
+hoặc URL của kho). Tiện ích ghi nhớ kho sau lần kiểm tra thành công.
+Chọn Kiểm tra cập nhật, rồi chọn Cập nhật nếu có bản mới. Lưu và mở lại SketchUp.
+Để phát hành, tạo GitHub Release ổn định với tag vX.Y.Z và đính kèm tệp
+Nep-Nha-Design-Tro-Ly-ChatGPT-vX.Y.Z.rbz có SHA-256 do GitHub cung cấp.

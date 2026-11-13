@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trợ lý AI Nếp Nhà</title>
+  <style>
+    :root { color-scheme:light; --green:#183c2c; --leaf:#2e6a4b; --cream:#f6f2e8; --ink:#1d2922; --line:#d9d4c7; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:14px/1.45 system-ui,"Segoe UI",sans-serif; color:var(--ink); background:var(--cream); }
+    header { display:flex; align-items:center; gap:11px; padding:14px 16px; color:white; background:var(--green); }
+    .mark { display:block; width:60px; height:46px; object-fit:contain; background:white; border-radius:7px; padding:3px; }
+    h1 { margin:0; font-size:17px; } header p { margin:1px 0 0; opacity:.75; font-size:12px; }
+    body { height:100vh; display:flex; flex-direction:column; }
+    #messages { flex:1; min-height:80px; overflow:auto; padding:16px; }
+    select { max-width:155px; }
+    .message { max-width:88%; margin:0 0 12px; padding:10px 12px; border-radius:13px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .assistant { background:white; border:1px solid var(--line); border-bottom-left-radius:4px; }
+    .user { margin-left:auto; color:white; background:var(--leaf); border-bottom-right-radius:4px; }
+    .error { background:#fff0ed; border:1px solid #e6aaa0; color:#7b2117; }
+    .thinking { color:#667069; font-style:italic; }
+    .viewport { display:block; max-width:100%; margin-top:9px; border-radius:8px; border:1px solid var(--line); }
+    .account { margin:0 14px 8px; padding:9px 10px; background:#ece7da; border-radius:9px; }
+    .account-line { display:flex; align-items:center; gap:8px; }
+    .dot { width:9px; height:9px; border-radius:50%; background:#9b9384; flex:0 0 auto; }
+    .dot.ready { background:#23834f; } .dot.working { background:#d18b19; }
+    #authMessage { flex:1; font-size:12px; }
+    .auth-actions { display:flex; gap:7px; margin-top:8px; }
+    button { border:0; border-radius:8px; cursor:pointer; font-weight:650; }
+    .link { padding:7px 9px; color:var(--green); background:white; border:1px solid #bdb7a9; white-space:nowrap; }
+    footer { padding:0 14px 14px; }
+    textarea { width:100%; min-height:68px; max-height:150px; resize:vertical; padding:10px; border:1px solid #bdb7a9; border-radius:10px; font:inherit; }
+    .actions { display:flex; justify-content:space-between; align-items:center; margin-top:7px; }
+    .reset { padding:8px 10px; color:#536058; background:transparent; }
+    .send { padding:9px 18px; color:white; background:var(--leaf); }
+    .send:disabled { opacity:.55; cursor:default; }
+    .hint { margin:5px 0 0; color:#667069; font-size:11px; }
+  </style>
+</head>
+<body>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp · Giai đoạn 1</p></div></header>
+  <main id="messages"><div class="message assistant">Xin chào. Tôi có thể kiểm tra model, đọc kích thước bao, chụp góc nhìn, tạo Tag và vật liệu. Giai đoạn dựng tường, sàn và cửa sẽ được bổ sung tiếp theo.</div></main>
+  <section class="account">
+    <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
+    <div class="auth-actions"><button class="link" id="login" hidden>Tiếp tục với ChatGPT</button><button class="link" id="install" hidden>Cài thành phần ChatGPT</button></div>
+    <p class="hint">Không cần API key. Dùng hạn mức của gói ChatGPT đủ điều kiện.</p>
+  </section>
+  <footer>
+    <textarea id="prompt" placeholder="Ví dụ: Kiểm tra model hiện tại giúp tôi"></textarea>
+    <div class="actions"><button class="reset" id="reset">Cuộc trò chuyện mới</button><label>Model <select id="model"><option value="">Tự động</option></select></label><button class="send" id="send" disabled>Gửi</button></div>
+    <p class="hint" id="modelStatus"></p>
+    <label><input type="checkbox" id="fast"> Phản hồi nhanh</label>
+    <details>
+      <summary>Cập nhật tiện ích · 1.4.2</summary>
+      <label>Kho GitHub phát hành <input id="repository" placeholder="chủ-kho/tên-kho" spellcheck="false"></label>
+      <button class="link" id="update">Kiểm tra cập nhật</button>
+      <p class="hint" id="updateStatus" role="status"></p>
+    </details>
+    <p class="hint">Enter để gửi · Shift+Enter để xuống dòng</p>
+  </footer>
+  <script>
+    (() => {
+      const messages = document.getElementById('messages');
+      const prompt = document.getElementById('prompt');
+      const send = document.getElementById('send');
+      const login = document.getElementById('login');
+      const install = document.getElementById('install');
+      const authDot = document.getElementById('authDot');
+      const authMessage = document.getElementById('authMessage');
+      let busy = false;
+      let authReady = false;
+      const model = document.getElementById('model');
+      const fast = document.getElementById('fast');
+      const modelStatus = document.getElementById('modelStatus');
+      const repository = document.getElementById('repository');
+      const update = document.getElementById('update');
+      const updateStatus = document.getElementById('updateStatus');
+      const load = key => { try { return localStorage.getItem(key) || ''; } catch (_) { return ''; } };
+      const save = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
+      let release = '';
+      repository.value = load('nn-repository');
+      fast.checked = load('nn-fast') !== 'off';
+      fast.addEventListener('change', () => save('nn-fast', fast.checked ? 'on' : 'off'));
+      repository.addEventListener('input', () => {
+        release = '';
+        update.textContent = 'Kiểm tra cập nhật';
+      });
+      update.addEventListener('click', () => {
+        const repo = repository.value.trim().replace(/^https:\/\/github\.com\//i, '').replace(/\/$/, '');
+        if (!/^[a-z0-9-]+\/[a-z0-9_.-]+$/i.test(repo)) {
+          updateStatus.textContent = 'Nhập kho GitHub theo dạng chủ-kho/tên-kho hoặc URL của kho.';
+          return;
+        }
+        repository.value = repo;
+        update.disabled = repository.disabled = true;
+        updateStatus.textContent = release ? 'Đang tải và kiểm tra gói…' : 'Đang kiểm tra…';
+        window.sketchup.nep_nha_update(release ? 'download_update' : 'check_update', repo, release);
+      });
+      model.addEventListener('change', () => {
+        save('nn-model', model.value);
+        window.sketchup.nep_nha_reset();
+      });
+
+      function add(text, role, image) {
+        const item = document.createElement('div');
+        item.className = `message ${role}`;
+        item.textContent = text;
+        if (image) {
+          const img = document.createElement('img');
+          img.className = 'viewport'; img.alt = 'Ảnh viewport SketchUp';
+          img.src = `data:${image.mime_type};base64,${image.data}`;
+          item.appendChild(img);
+        }
+        messages.appendChild(item); messages.scrollTop = messages.scrollHeight;
+        return item;
+      }
+
+      function submit() {
+        const text = prompt.value.trim();
+        if (!text || busy) return;
+        if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
+        add(text, 'user'); prompt.value = ''; busy = true; send.disabled = model.disabled = true;
+        const wait = add('Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
+        window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked}));
+      }
+
+      window.NepNhaChat = {
+        repository(value) {
+          if (value && document.activeElement !== repository) repository.value = value;
+        },
+        receive(result) {
+          const wait = document.getElementById('waiting'); if (wait) wait.remove();
+          busy = false; send.disabled = !authReady; model.disabled = false;
+          if (result.reset) {
+            messages.replaceChildren(); add('Đã bắt đầu cuộc trò chuyện mới.', 'assistant');
+          } else if (result.ok) {
+            const images = result.images || [];
+            add(result.text || 'Đã hoàn tất.', 'assistant', images[images.length - 1]);
+          } else {
+            add(result.error || 'Có lỗi chưa xác định.', 'error');
+            if (result.auth_required) this.auth({state:'signed_out', message:result.error});
+          }
+          prompt.focus();
+        },
+        auth(result) {
+          const state = result.state || 'error';
+          if (!authReady && state === 'ready') {
+            modelStatus.textContent = 'Đang lấy danh sách model…';
+            window.sketchup.nep_nha_models();
+          }
+          authReady = state === 'ready';
+          authDot.className = `dot ${state}`;
+          authMessage.textContent = result.message || 'Không đọc được trạng thái đăng nhập.';
+          install.hidden = state !== 'missing';
+          login.hidden = state === 'missing' || state === 'ready';
+          login.disabled = state === 'working'; install.disabled = state === 'working';
+          send.disabled = busy || !authReady;
+        },
+        models(result) {
+          model.replaceChildren(new Option('Tự động', ''));
+          for (const item of result.models || []) model.add(new Option(item.label, item.id));
+          const previous = load('nn-model');
+          if ([...model.options].some(option => option.value === previous)) model.value = previous;
+          modelStatus.textContent = result.catalog === 'fallback' ? 'Đang dùng danh sách model dự phòng.' :
+            (result.ok ? '' : (result.error || 'Chưa lấy được danh sách model.'));
+        },
+        update(result) {
+          release = result.available ? result.version : '';
+          if (result.ok) save('nn-repository', repository.value);
+          update.disabled = repository.disabled = Boolean(result.installed);
+          update.textContent = release ? 'Cập nhật lên ' + release : 'Kiểm tra cập nhật';
+          updateStatus.textContent = result.message || result.error || '';
+        }
+      };
+      send.addEventListener('click', submit);
+      document.getElementById('reset').addEventListener('click', () => { if (!busy) window.sketchup.nep_nha_reset(); });
+      login.addEventListener('click', () => window.sketchup.nep_nha_login());
+      install.addEventListener('click', () => window.sketchup.nep_nha_install_codex());
+      prompt.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
+      });
+      window.sketchup.nep_nha_auth_status();
+      prompt.focus();
+    })();
+  </script>
+</body>
+</html>
