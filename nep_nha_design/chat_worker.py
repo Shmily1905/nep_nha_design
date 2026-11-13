@@ -87,7 +87,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.4.2"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.4.3"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
@@ -248,10 +248,14 @@ def main() -> None:
                 result = {"ok": True, "models": models, "catalog": "codex"}
             except (ValueError, RuntimeError, OSError, KeyError, TypeError, json.JSONDecodeError):
                 result = {"ok": True, "models": FALLBACK_MODELS, "catalog": "fallback"}
-        elif request.get("action") in {"check_update", "download_update"}:
+        elif request.get("action") in {"check_update", "download_update", "github_status",
+                                        "github_save", "github_logout"}:
             from runpy import run_path
             updater = run_path(str(Path(__file__).with_name("update_worker.py")))
-            result = updater["update"](request)
+            if request.get("action").startswith("github_"):
+                result = updater["github_auth"](request)
+            else:
+                result = updater["update"](request)
         else:
             result = run_turn(request)
     except LoginRequired as exc:

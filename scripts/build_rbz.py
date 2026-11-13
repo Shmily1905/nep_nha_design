@@ -12,7 +12,7 @@ FILES = [
     "nep_nha_design.rb",
     *(f"nep_nha_design/{name}" for name in (
         "HUONG_DAN.txt", "cai_dat_mcp.py", "chat.html", "chat_worker.py",
-        "logo.png", "main.rb", "mcp_server.py", "requirements.txt",
+        "github_credential.py", "logo.png", "main.rb", "mcp_server.py", "requirements.txt",
         "su_mcp_bridge.rb", "update_worker.py",
     )),
 ]

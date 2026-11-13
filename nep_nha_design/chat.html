@@ -35,6 +35,11 @@
     .send { padding:9px 18px; color:white; background:var(--leaf); }
     .send:disabled { opacity:.55; cursor:default; }
     .hint { margin:5px 0 0; color:#667069; font-size:11px; }
+    .github-row { display:flex; align-items:center; gap:7px; margin-top:8px; flex-wrap:wrap; }
+    .github-row input[type="password"] { flex:1; min-width:180px; padding:7px; border:1px solid #bdb7a9; border-radius:7px; }
+    details { margin-top:9px; }
+    details > label { display:block; margin-top:8px; }
+    details > label > input { width:100%; margin-top:4px; padding:7px; border:1px solid #bdb7a9; border-radius:7px; }
   </style>
 </head>
 <body>
@@ -51,8 +56,16 @@
     <p class="hint" id="modelStatus"></p>
     <label><input type="checkbox" id="fast"> Phản hồi nhanh</label>
     <details>
-      <summary>Cập nhật tiện ích · 1.4.2</summary>
+      <summary>Cập nhật tiện ích · 1.4.3</summary>
       <label>Kho GitHub phát hành <input id="repository" placeholder="chủ-kho/tên-kho" spellcheck="false"></label>
+      <div class="github-row"><span class="dot" id="githubDot"></span><span class="hint" id="githubStatus">Đang kiểm tra đăng nhập GitHub…</span></div>
+      <div class="github-row" id="githubLogin">
+        <input type="password" id="githubToken" autocomplete="off" placeholder="Dán fine-grained token tại đây">
+        <button class="link" id="githubCreate">Tạo mã đăng nhập</button>
+        <button class="link" id="githubSave">Lưu đăng nhập</button>
+      </div>
+      <div class="github-row"><button class="link" id="githubLogout" hidden>Đăng xuất GitHub</button></div>
+      <p class="hint">Chỉ cấp quyền Contents: read cho repository này. Mã được lưu trong kho thông tin đăng nhập của hệ điều hành.</p>
       <button class="link" id="update">Kiểm tra cập nhật</button>
       <p class="hint" id="updateStatus" role="status"></p>
     </details>
@@ -75,27 +88,68 @@
       const repository = document.getElementById('repository');
       const update = document.getElementById('update');
       const updateStatus = document.getElementById('updateStatus');
+      const githubDot = document.getElementById('githubDot');
+      const githubStatus = document.getElementById('githubStatus');
+      const githubLogin = document.getElementById('githubLogin');
+      const githubToken = document.getElementById('githubToken');
+      const githubCreate = document.getElementById('githubCreate');
+      const githubSave = document.getElementById('githubSave');
+      const githubLogout = document.getElementById('githubLogout');
       const load = key => { try { return localStorage.getItem(key) || ''; } catch (_) { return ''; } };
       const save = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
       let release = '';
-      repository.value = load('nn-repository');
+      let updateBusy = false;
+      let automaticCheck = false;
+      repository.value = load('nn-repository') || 'Shmily1905/nep_nha_design';
       fast.checked = load('nn-fast') !== 'off';
       fast.addEventListener('change', () => save('nn-fast', fast.checked ? 'on' : 'off'));
       repository.addEventListener('input', () => {
         release = '';
+        automaticCheck = false;
         update.textContent = 'Kiểm tra cập nhật';
       });
-      update.addEventListener('click', () => {
+      repository.addEventListener('change', () => githubAction('github_status'));
+
+      function cleanRepository() {
         const repo = repository.value.trim().replace(/^https:\/\/github\.com\//i, '').replace(/\/$/, '');
         if (!/^[a-z0-9-]+\/[a-z0-9_.-]+$/i.test(repo)) {
           updateStatus.textContent = 'Nhập kho GitHub theo dạng chủ-kho/tên-kho hoặc URL của kho.';
-          return;
+          return '';
         }
         repository.value = repo;
+        return repo;
+      }
+
+      function checkUpdate() {
+        const repo = cleanRepository();
+        if (!repo || updateBusy) return;
+        updateBusy = true;
         update.disabled = repository.disabled = true;
         updateStatus.textContent = release ? 'Đang tải và kiểm tra gói…' : 'Đang kiểm tra…';
         window.sketchup.nep_nha_update(release ? 'download_update' : 'check_update', repo, release);
+      }
+
+      function githubAction(action) {
+        const repo = cleanRepository();
+        if (!repo) return;
+        const token = action === 'github_save' ? githubToken.value.trim() : '';
+        if (action === 'github_save' && !token) {
+          githubStatus.textContent = 'Hãy dán mã GitHub vừa tạo.';
+          return;
+        }
+        githubSave.disabled = githubCreate.disabled = githubLogout.disabled = true;
+        githubStatus.textContent = action === 'github_save' ? 'Đang kiểm tra và lưu đăng nhập…' :
+          (action === 'github_logout' ? 'Đang đăng xuất…' : 'Đang kiểm tra đăng nhập GitHub…');
+        window.sketchup.nep_nha_github(action, repo, token);
+      }
+
+      update.addEventListener('click', checkUpdate);
+      githubCreate.addEventListener('click', () => {
+        const repo = cleanRepository();
+        if (repo) window.sketchup.nep_nha_github_token(repo);
       });
+      githubSave.addEventListener('click', () => githubAction('github_save'));
+      githubLogout.addEventListener('click', () => githubAction('github_logout'));
       model.addEventListener('change', () => {
         save('nn-model', model.value);
         window.sketchup.nep_nha_reset();
@@ -126,7 +180,11 @@
 
       window.NepNhaChat = {
         repository(value) {
-          if (value && document.activeElement !== repository) repository.value = value;
+          if (value && document.activeElement !== repository) {
+            repository.value = value;
+            save('nn-repository', value);
+          }
+          githubAction('github_status');
         },
         receive(result) {
           const wait = document.getElementById('waiting'); if (wait) wait.remove();
@@ -165,11 +223,28 @@
             (result.ok ? '' : (result.error || 'Chưa lấy được danh sách model.'));
         },
         update(result) {
+          updateBusy = false;
           release = result.available ? result.version : '';
           if (result.ok) save('nn-repository', repository.value);
           update.disabled = repository.disabled = Boolean(result.installed);
           update.textContent = release ? 'Cập nhật lên ' + release : 'Kiểm tra cập nhật';
           updateStatus.textContent = result.message || result.error || '';
+        },
+        github(result) {
+          const state = result.state || 'error';
+          const ready = state === 'ready';
+          githubDot.className = `dot ${ready ? 'ready' : ''}`;
+          githubStatus.textContent = result.message || result.error || 'Không đọc được trạng thái GitHub.';
+          githubLogin.hidden = ready;
+          githubLogout.hidden = !ready;
+          githubToken.value = '';
+          githubSave.disabled = githubCreate.disabled = githubLogout.disabled = false;
+          if (ready) save('nn-repository', repository.value);
+          if (ready && !automaticCheck) {
+            automaticCheck = true;
+            release = '';
+            checkUpdate();
+          }
         }
       };
       send.addEventListener('click', submit);

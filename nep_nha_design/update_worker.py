@@ -10,9 +10,18 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 import zipfile
 
+from runpy import run_path
+
+_credential = run_path(str(Path(__file__).with_name("github_credential.py")))
+delete_token = _credential["delete_token"]
+load_token = _credential["load_token"]
+save_token = _credential["save_token"]
+validate_token = _credential["validate_token"]
+
 LIMIT = 32 * 1024 * 1024
 HOSTS = {"api.github.com", "github.com", "release-assets.githubusercontent.com",
          "objects.githubusercontent.com"}
+API_VERSION = "2022-11-28"
 
 
 def trusted(url):
@@ -24,12 +33,22 @@ def trusted(url):
 class GitHubRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         trusted(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if urlsplit(req.full_url).netloc != urlsplit(newurl).netloc:
+            redirected.remove_header("Authorization")
+        return redirected
 
 
-def fetch(url, limit):
+def fetch(url, limit, token=None, accept="application/vnd.github+json"):
     trusted(url)
-    req = Request(url, headers={"User-Agent": "Nep-Nha-Design-Updater"})
+    headers = {
+        "Accept": accept,
+        "User-Agent": "Nep-Nha-Design-Updater",
+        "X-GitHub-Api-Version": API_VERSION,
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(url, headers=headers)
     with build_opener(GitHubRedirect()).open(req, timeout=20) as response:
         data = response.read(limit + 1)
     if len(data) > limit:
@@ -37,15 +56,61 @@ def fetch(url, limit):
     return data
 
 
-def update(request):
-    repository = request.get("repository", "")
+def normalize_repository(value):
+    repository = str(value or "").strip()
+    repository = re.sub(r"^https://github\.com/", "", repository, flags=re.IGNORECASE).rstrip("/")
     if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", repository):
-        raise ValueError("Hãy nhập kho GitHub công khai theo dạng chủ-kho/tên-kho.")
+        raise ValueError("Hãy nhập kho GitHub theo dạng chủ-kho/tên-kho.")
+    return repository
+
+
+def repository_info(repository, token):
+    return json.loads(fetch(f"https://api.github.com/repos/{repository}", 2**20, token))
+
+
+def github_auth(request):
+    action = request.get("action")
+    repository = normalize_repository(request.get("repository"))
+    if action == "github_logout":
+        delete_token()
+        return {"ok": True, "state": "signed_out", "message": "Đã đăng xuất GitHub."}
+    if action == "github_save":
+        token = validate_token(request.get("token", ""))
+        try:
+            info = repository_info(repository, token)
+        except HTTPError as exc:
+            if exc.code in (401, 403, 404):
+                raise ValueError("Mã GitHub không có quyền đọc repository này.") from exc
+            raise
+        save_token(token)
+        return {"ok": True, "state": "ready", "login": info.get("owner", {}).get("login", ""),
+                "message": "Đã đăng nhập GitHub và lưu an toàn trên máy."}
+
+    token = load_token()
+    if not token:
+        return {"ok": True, "state": "signed_out", "message": "Chưa đăng nhập GitHub để đọc bản phát hành riêng tư."}
     try:
-        release = json.loads(fetch(f"https://api.github.com/repos/{repository}/releases/latest", 2**20))
+        info = repository_info(repository, token)
+    except HTTPError as exc:
+        if exc.code in (401, 403, 404):
+            return {"ok": True, "state": "signed_out",
+                    "message": "Phiên GitHub đã hết hạn hoặc chưa được cấp quyền cho repository này."}
+        raise
+    return {"ok": True, "state": "ready", "login": info.get("owner", {}).get("login", ""),
+            "message": "Đã đăng nhập GitHub. Đang tự kiểm tra cập nhật…"}
+
+
+def update(request):
+    repository = normalize_repository(request.get("repository"))
+    token = load_token()
+    try:
+        release = json.loads(fetch(f"https://api.github.com/repos/{repository}/releases/latest", 2**20, token))
     except HTTPError as exc:
         if exc.code == 404:
-            raise ValueError("Kho GitHub chưa có bản phát hành công khai.") from exc
+            message = "Không đọc được bản phát hành. Hãy đăng nhập GitHub và cấp quyền Contents: read cho repository này."
+            raise ValueError(message) from exc
+        if exc.code in (401, 403):
+            raise ValueError("Phiên GitHub đã hết hạn hoặc không đủ quyền đọc bản phát hành.") from exc
         raise
     tag = release.get("tag_name", "")
     match = re.fullmatch(r"v?(\d+\.\d+\.\d+)", tag)
@@ -67,7 +132,8 @@ def update(request):
         return {"ok": True, "available": True, "version": version, "message": f"Có bản {version}."}
     if request.get("expected_version") != version:
         raise ValueError("Bản phát hành vừa thay đổi. Hãy kiểm tra lại.")
-    data = fetch(f"https://github.com/{repository}/releases/download/{tag}/{filename}", LIMIT)
+    asset_url = asset.get("url", "")
+    data = fetch(asset_url, LIMIT, token, "application/octet-stream")
     if hashlib.sha256(data).hexdigest() != digest[7:]:
         raise ValueError("Mã SHA-256 không khớp. Đã dừng cài đặt.")
     with tempfile.NamedTemporaryFile(suffix=".rbz", delete=False) as file:

@@ -11,26 +11,27 @@ tạo Tag và vật liệu. Xem hướng dẫn cài đặt trong [HUONG_DAN.txt]
    chọn thư mục chứa README này, rồi chọn **Create a repository** nếu được hỏi.
    Giữ README và tệp cấu hình đi kèm. Commit các tệp lên nhánh chính nếu chúng đang
    ở tab **Changes**.
-2. Chọn **Publish repository**. Đặt tên, ví dụ `nep-nha-design`. Bỏ chọn
-   **Keep this code private** nếu đồng ý công khai mã nguồn và logo. Trợ lý đọc
-   GitHub Releases công khai để cập nhật trên máy người dùng.
+2. Chọn **Publish repository**. Đặt tên, ví dụ `nep-nha-design`. Repository có
+   thể để **Private**. Từ v1.4.3, trợ lý đọc Release riêng tư bằng fine-grained
+   token chỉ có quyền `Contents: read`.
 3. Kiểm tra kho GitHub đã có `.github/workflows/release.yml`. Trong GitHub Desktop,
    mở **History**, bấm chuột phải vào commit cần phát hành, chọn **Create Tag**
-   và đặt tên `v1.4.2`. Bấm **Push origin** để đẩy tag lên GitHub.
+   và đặt tên `v1.4.3`. Bấm **Push origin** để đẩy tag lên GitHub.
 4. Trên GitHub, kiểm tra tab **Actions**. Khi tác vụ phát hành hoàn tất, tab
-   **Releases** sẽ có `v1.4.2` và tệp `Nep-Nha-Design-Tro-Ly-ChatGPT-v1.4.2.rbz`.
-
-Nếu chỉ muốn công khai gói cài, có thể dùng kho phát hành công khai riêng và giữ
-mã nguồn ở kho riêng tư. Khi đó, đăng tệp RBZ vào một Release ổn định của kho
-công khai theo đúng tên và tag. Workflow trong gói này phát hành vào chính kho
-chứa mã nguồn.
+   **Releases** sẽ có `v1.4.3` và tệp `Nep-Nha-Design-Tro-Ly-ChatGPT-v1.4.3.rbz`.
 
 ## Kết nối nút cập nhật trong SketchUp
 
 1. Mở **Extensions → Nếp Nhà Design → Mở Trợ lý AI → Cập nhật tiện ích**.
-2. Nhập `chủ-kho/tên-kho`. Từ v1.4.2 cũng có thể dán URL của kho.
-3. Bấm **Kiểm tra cập nhật**. Nếu đang dùng v1.4.1, chọn **Cập nhật lên 1.4.2**.
-4. Lưu bản vẽ, đóng rồi mở lại SketchUp. Kiểm tra số phiên bản trong tiêu đề.
+2. Nhập `chủ-kho/tên-kho`, rồi bấm **Tạo mã đăng nhập**.
+3. Trên GitHub, chọn đúng repository và chỉ cấp `Contents: read`. Sao chép token,
+   dán vào trợ lý và bấm **Lưu đăng nhập**.
+4. Tiện ích lưu token trong Windows Credential Manager hoặc macOS Keychain và tự
+   kiểm tra cập nhật mỗi khi mở trợ lý. Khi có bản mới, bấm **Cập nhật lên X.Y.Z**.
+5. Lưu bản vẽ, đóng rồi mở lại SketchUp. Kiểm tra số phiên bản trong tiêu đề.
+
+Token không được ghi vào repository hoặc tệp cấu hình. Có thể thu hồi token trên
+GitHub hoặc bấm **Đăng xuất GitHub** trong trợ lý.
 
 Nếu SketchUp từ chối cài, kiểm tra chính sách nạp tiện ích của máy. Gói này chưa
 được ký số.

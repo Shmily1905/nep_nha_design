@@ -24,7 +24,8 @@ module NepNhaDesign
     CHAT_HTML_PATH = File.join(ROOT, 'chat.html').freeze
     CHAT_WORKER_PATH = File.join(ROOT, 'chat_worker.py').freeze
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.4.2'
+    VERSION = '1.4.3'
+    DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
       def install_and_check(open_chat_after = false)
@@ -143,7 +144,7 @@ module NepNhaDesign
         @chat_dialog.add_action_callback('nep_nha_send') { |_context, raw| receive_chat(raw) }
         @chat_dialog.add_action_callback('nep_nha_reset') { |_context| reset_chat }
         @chat_dialog.add_action_callback('nep_nha_auth_status') do |_context|
-          repository = Sketchup.read_default('NepNhaDesign', 'UpdateRepository', '')
+          repository = Sketchup.read_default('NepNhaDesign', 'UpdateRepository', DEFAULT_REPOSITORY)
           @chat_dialog.execute_script("window.NepNhaChat.repository(#{JSON.generate(repository)})")
           run_panel_task('auth', { action: 'auth', codex_candidates: codex_candidates })
         end
@@ -157,6 +158,25 @@ module NepNhaDesign
 
           run_panel_task('update', { action: action, repository: repository,
                                     version: VERSION, expected_version: version })
+        end
+        @chat_dialog.add_action_callback('nep_nha_github') do |_context, action, repository, token|
+          next unless %w[github_status github_save github_logout].include?(action)
+
+          payload = { action: action, repository: repository }
+          payload[:token] = token.to_s if action == 'github_save'
+          run_panel_task('github', payload)
+        end
+        @chat_dialog.add_action_callback('nep_nha_github_token') do |_context, repository|
+          owner = repository.to_s.split('/', 2).first
+          owner = DEFAULT_REPOSITORY.split('/', 2).first unless owner.match?(/\A[A-Za-z0-9-]+\z/)
+          query = [
+            'name=Nep+Nha+Design+Updater',
+            'description=Read+private+releases+for+SketchUp+updates',
+            "target_name=#{CGI.escape(owner)}",
+            'expires_in=366',
+            'contents=read'
+          ].join('&')
+          UI.openURL("https://github.com/settings/personal-access-tokens/new?#{query}")
         end
         @chat_dialog.set_on_closed { @chat_dialog = nil }
         @chat_dialog.show
@@ -211,11 +231,16 @@ module NepNhaDesign
         request_path = File.join(DATA_DIR, "chat-request-#{task_id}.json")
         result_path = File.join(DATA_DIR, "chat-result-#{task_id}.json")
         payload = payload.merge(data_dir: DATA_DIR, result_path: result_path)
-        File.binwrite(request_path, JSON.generate(payload).encode(Encoding::UTF_8))
-        stdout_text, stderr_text, status = Open3.capture3(
-          background_python_path, '-I', '-S', '-X', 'utf8', '-u', CHAT_WORKER_PATH, request_path,
-          binmode: true
-        )
+        secret_request = payload.key?(:token)
+        arguments = [background_python_path, '-I', '-S', '-X', 'utf8', '-u', CHAT_WORKER_PATH]
+        if secret_request
+          stdout_text, stderr_text, status = Open3.capture3(
+            *arguments, stdin_data: JSON.generate(payload).encode(Encoding::UTF_8), binmode: true
+          )
+        else
+          File.binwrite(request_path, JSON.generate(payload).encode(Encoding::UTF_8))
+          stdout_text, stderr_text, status = Open3.capture3(*arguments, request_path, binmode: true)
+        end
         output = if File.file?(result_path)
                    File.binread(result_path).force_encoding(Encoding::UTF_8)
                  else
@@ -265,6 +290,9 @@ module NepNhaDesign
           end
           if dialog.equal?(@chat_dialog) && dialog.visible?
             if channel == 'update' && payload[:action] == 'check_update' && result['ok']
+              Sketchup.write_default('NepNhaDesign', 'UpdateRepository', payload[:repository])
+            end
+            if channel == 'github' && result['ok'] && result['state'] == 'ready'
               Sketchup.write_default('NepNhaDesign', 'UpdateRepository', payload[:repository])
             end
             if channel == 'auth'

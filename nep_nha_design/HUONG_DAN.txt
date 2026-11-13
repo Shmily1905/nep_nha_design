@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.4.2 · Giai đoạn 1
+Phiên bản 1.4.3 · Giai đoạn 1
 
 1. Trong SketchUp, mở Extensions > Extension Manager > Install Extension.
 2. Chọn tệp RBZ này và khởi động lại SketchUp.
@@ -24,8 +24,12 @@ của tiện ích. Tệp RBZ này chưa ký số.
 Model: chọn Tự động hoặc một model từ danh sách Codex. Đổi model mở cuộc chat mới.
 Phản hồi nhanh: mặc định bật, dùng mức suy luận thấp. Bỏ chọn để dùng mức mặc định.
 
-Cập nhật: nhập kho GitHub công khai chính thức của Nếp Nhà Design (chủ-kho/tên-kho
-hoặc URL của kho). Tiện ích ghi nhớ kho sau lần kiểm tra thành công.
+Cập nhật repository riêng tư:
+- Mở mục Cập nhật tiện ích và bấm Tạo mã đăng nhập.
+- Trên GitHub, chọn đúng repository và chỉ cấp Contents: read.
+- Tạo token, sao chép token một lần, dán vào trợ lý rồi bấm Lưu đăng nhập.
+- Token được lưu trong Windows Credential Manager hoặc macOS Keychain, không ghi
+  vào tệp cấu hình. Khi mở trợ lý, tiện ích tự kiểm tra Release mới.
 Chọn Kiểm tra cập nhật, rồi chọn Cập nhật nếu có bản mới. Lưu và mở lại SketchUp.
-Để phát hành, tạo GitHub Release ổn định với tag vX.Y.Z và đính kèm tệp
+Để phát hành, tạo GitHub Release với tag vX.Y.Z và đính kèm tệp
 Nep-Nha-Design-Tro-Ly-ChatGPT-vX.Y.Z.rbz có SHA-256 do GitHub cung cấp.
