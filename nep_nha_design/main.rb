@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'cgi'
+require 'base64'
 require 'fileutils'
 require 'json'
 require 'open3'
@@ -27,7 +28,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.6.5'
+    VERSION = '1.7.0'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -256,6 +257,20 @@ module NepNhaDesign
 
         data = JSON.generate({ role: role, path: path, name: File.basename(path) })
         @chat_dialog.execute_script("window.NepNhaChat.attach(#{data})")
+        show_plan_preview(path) if is_plan
+      end
+
+      def show_plan_preview(path)
+        mime = { '.png' => 'png', '.jpg' => 'jpeg', '.jpeg' => 'jpeg', '.webp' => 'webp' }[File.extname(path).downcase]
+        return unless mime
+
+        bytes = File.binread(path, 10 * 1024 * 1024 + 1)
+        raise ArgumentError, 'Ảnh mặt bằng vượt 10 MB.' if bytes.bytesize > 10 * 1024 * 1024
+
+        data = { path: path, src: "data:image/#{mime};base64,#{Base64.strict_encode64(bytes)}" }
+        @chat_dialog.execute_script("window.NepNhaChat.planPreview(#{JSON.generate(data)})")
+      rescue StandardError => e
+        @chat_dialog.execute_script("window.NepNhaChat.previewError(#{JSON.generate(e.message)})")
       end
 
       def receive_chat(raw)
@@ -282,6 +297,8 @@ module NepNhaDesign
           selection: Bridge.selection_info(Sketchup.active_model),
           pdf_page: request.fetch('pdf_page', 1)
         }
+        payload[:concept] = request['concept'] if request.key?('concept')
+        payload[:action] = 'trace_plan' if request['trace_plan'] == true
         dialog = @chat_dialog
         @chat_busy = true
         queue = Queue.new
@@ -296,7 +313,7 @@ module NepNhaDesign
           @chat_busy = false
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
-          @thread_id = result['thread_id'] if result['ok'] && result['thread_id']
+          @thread_id = result['thread_id'] if result['ok'] && result['thread_id'] && !payload[:action]
           result['draft_skill'] = draft if result['ok']
           send_to_chat(result)
         end

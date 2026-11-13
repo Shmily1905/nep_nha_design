@@ -41,10 +41,18 @@
     details { margin-top:9px; }
     details > label { display:block; margin-top:8px; }
     details > label > input { width:100%; margin-top:4px; padding:7px; border:1px solid #bdb7a9; border-radius:7px; }
+    #conceptPanel { max-height: 37vh; overflow:auto; }
+    #planPreview { position:relative; max-width:100%; }
+    #planImage { display:block; width:100%; }
+    #planOverlay { position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:crosshair; }
+    #planOverlay polygon { fill:#2b825750; stroke:#38b77d; stroke-width:2px; vector-effect:non-scaling-stroke; }
+    #planOverlay line { stroke:#ffad33; stroke-width:4px; vector-effect:non-scaling-stroke; }
+    #planOverlay circle { fill:#fff; stroke:#235d45; stroke-width:2px; vector-effect:non-scaling-stroke; cursor:grab; }
+    #conceptPanel input[type=number] { width:8em; }
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.6.5">v1.6.5</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><span class="version" aria-label="Phiên bản 1.7.0">v1.7.0</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -67,6 +75,23 @@
       <p id="skillStatus" role="status"></p>
     </section>
     <div id="attachments" aria-live="polite"></div>
+    <details id="conceptPanel" hidden>
+      <summary>Concept ngoại thất</summary>
+      <div class="auth-actions">
+        <button type="button" class="link" id="tracePlan">Nhận diện đường bao</button>
+        <button type="button" class="link" id="undoVertex">Bỏ đỉnh cuối</button>
+        <button type="button" class="link" id="clearOutline">Vẽ lại</button>
+      </div>
+      <p class="hint" id="outlineStatus" role="status">Bấm các góc tường ngoài theo thứ tự hoặc dùng nhận diện. Kéo đỉnh để chỉnh.</p>
+      <div id="planPreview">
+        <img id="planImage" alt="Ảnh mặt bằng">
+        <svg id="planOverlay" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Đường bao tường ngoài"></svg>
+      </div>
+      <label>Ngang bao (mm) <input id="conceptWidth" type="number" min="500" max="100000" step="1" placeholder="Ví dụ 12000"></label>
+      <label><input id="estimateScale" type="checkbox"> Dùng ngang bao ước lượng 12.000 mm khi để trống</label>
+      <label>Mặt tiền <select id="frontEdge" aria-label="Cạnh mặt tiền"></select></label>
+      <button type="button" class="link" id="buildConcept">Dựng concept theo đường bao</button>
+    </details>
     <label id="pdfPageRow" hidden>Trang PDF <input id="pdfPage" type="number" min="1" value="1"></label>
     <div class="actions"><button class="reset" id="reset">Cuộc trò chuyện mới</button><label>Model <select id="model"><option value="">Tự động</option></select></label><button class="send" id="send" disabled>Gửi</button></div>
     <p class="hint" id="modelStatus"></p>
@@ -186,6 +211,110 @@
       }
 
       let attachments = [];
+      const conceptPanel = document.getElementById('conceptPanel');
+      const planImage = document.getElementById('planImage');
+      const overlay = document.getElementById('planOverlay');
+      const outlineStatus = document.getElementById('outlineStatus');
+      const frontEdge = document.getElementById('frontEdge');
+      const conceptWidth = document.getElementById('conceptWidth');
+      const estimateScale = document.getElementById('estimateScale');
+      const referencePurposes = [
+        ['style', 'Phong cách chung'], ['roof', 'Mái'], ['facade', 'Mặt đứng'],
+        ['material', 'Vật liệu'], ['detail', 'Chi tiết']
+      ];
+      let outline = [];
+      let movingVertex = null;
+
+      function drawOutline() {
+        overlay.replaceChildren();
+        const make = (tag, attrs) => {
+          const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+          for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+          overlay.appendChild(node);
+          return node;
+        };
+        if (outline.length) make('polygon', {points: outline.map(point => point.join(',')).join(' ')});
+        const edge = Number(frontEdge.value);
+        if (frontEdge.value !== '' && outline.length >= 3 && outline[edge]) {
+          const [x1, y1] = outline[edge];
+          const [x2, y2] = outline[(edge + 1) % outline.length];
+          make('line', {x1, y1, x2, y2});
+        }
+        outline.forEach(([cx, cy], index) => {
+          make('circle', {cx, cy, r:0.013, 'data-vertex':index});
+        });
+      }
+
+      function updateOutline() {
+        const previous = frontEdge.value;
+        frontEdge.replaceChildren(new Option('Chọn cạnh', ''));
+        if (outline.length >= 3) outline.forEach((_, i) => {
+          frontEdge.add(new Option(`Đỉnh ${i + 1} → ${(i + 1) % outline.length + 1}`, String(i)));
+        });
+        if (outline.length >= 3 && previous !== '' && Number(previous) < outline.length) frontEdge.value = previous;
+        drawOutline();
+      }
+
+      function resetConcept() {
+        outline = [];
+        frontEdge.value = '';
+        conceptWidth.value = '';
+        estimateScale.checked = false;
+        planImage.removeAttribute('src');
+        conceptPanel.hidden = true;
+        conceptPanel.open = false;
+        outlineStatus.textContent = 'Bấm các góc tường ngoài theo thứ tự hoặc dùng nhận diện. Kéo đỉnh để chỉnh.';
+        updateOutline();
+      }
+
+      function planPoint(event) {
+        const rect = overlay.getBoundingClientRect();
+        const clamp = number => Math.max(0, Math.min(1, number));
+        return [clamp((event.clientX - rect.left) / rect.width), clamp((event.clientY - rect.top) / rect.height)];
+      }
+
+      overlay.addEventListener('pointerdown', event => {
+        if (busy || !planImage.naturalWidth || event.button !== 0) return;
+        const index = event.target.getAttribute('data-vertex');
+        if (index !== null) {
+          movingVertex = Number(index);
+          overlay.setPointerCapture(event.pointerId);
+        } else if (outline.length < 32) {
+          outline.push(planPoint(event));
+          updateOutline();
+        }
+      });
+      overlay.addEventListener('pointermove', event => {
+        if (movingVertex === null || busy) return;
+        outline[movingVertex] = planPoint(event);
+        drawOutline();
+      });
+      overlay.addEventListener('lostpointercapture', () => { movingVertex = null; });
+      frontEdge.onchange = drawOutline;
+      document.getElementById('undoVertex').onclick = () => {
+        if (!busy) { outline.pop(); updateOutline(); }
+      };
+      document.getElementById('clearOutline').onclick = () => {
+        if (!busy) { outline = []; updateOutline(); }
+      };
+      document.getElementById('tracePlan').onclick = () => {
+        if (planImage.naturalWidth) submit({trace_plan:true});
+      };
+      document.getElementById('buildConcept').onclick = () => {
+        if (busy) return;
+        if (outline.length < 3 || !planImage.naturalWidth || frontEdge.value === '') {
+          outlineStatus.textContent = 'Cần ít nhất ba đỉnh và một cạnh mặt tiền.';
+          return;
+        }
+        const estimated = conceptWidth.value === '' && estimateScale.checked;
+        const width = estimated ? 12000 : Number(conceptWidth.value);
+        if (width < 500 || width > 100000) {
+          outlineStatus.textContent = 'Nhập chiều ngang bao từ 500 đến 100.000 mm hoặc chọn ước lượng.';
+          return;
+        }
+        submit({concept:{outline, width_mm:width, estimated, front_edge:Number(frontEdge.value),
+          aspect:planImage.naturalWidth / planImage.naturalHeight}});
+      };
       function renderAttachments() {
         document.getElementById('pdfPageRow').hidden = !attachments.some(
           file => file.role === 'plan' && /\.pdf$/i.test(file.name)
@@ -202,9 +331,18 @@
           button.addEventListener('click', () => {
             if (busy) return;
             attachments.splice(index, 1);
+            if (file.role === 'plan') resetConcept();
             renderAttachments();
           });
           list.appendChild(button);
+          if (file.role === 'reference') {
+            const select = document.createElement('select');
+            select.setAttribute('aria-label', `Vai trò của ${file.name}`);
+            for (const [value, label] of referencePurposes) select.add(new Option(label, value));
+            select.value = file.purpose || 'style';
+            select.onchange = () => { file.purpose = select.value; };
+            list.appendChild(select);
+          }
         });
       }
       function callPicker(name, legacyRole) {
@@ -240,16 +378,21 @@
       };
       document.getElementById('cancelSkill').onclick = () => { review.hidden = true; };
 
-      function submit() {
-        const text = prompt.value.trim();
+      function submit(options = {}) {
+        const tracing = options.trace_plan === true;
+        const text = tracing ? 'Nhận diện đường bao tường ngoài' :
+          (prompt.value.trim() || (options.concept ? 'Dựng concept ngoại thất theo đường bao đã duyệt và ảnh tham chiếu.' : ''));
         if (!text || busy) return;
         if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
-        const images = attachments.map(({role, path}) => ({role, path}));
-        const names = attachments.map(file => file.name);
-        add([text, ...names].join('\n'), 'user'); prompt.value = ''; busy = true; send.disabled = model.disabled = true;
+        const files = tracing ? attachments.filter(file => file.role === 'plan') : attachments;
+        const images = files.map(({role, path, purpose}) => ({role, path, purpose}));
+        const names = files.map(file => file.name);
+        add([text, ...names].join('\n'), 'user');
+        if (!tracing) prompt.value = '';
+        busy = true; send.disabled = model.disabled = true;
         const wait = add('Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
         const pdf_page = Number(document.getElementById('pdfPage').value);
-        window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked, images, pdf_page}));
+        window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked, images, pdf_page, ...options}));
       }
 
       window.NepNhaChat = {
@@ -261,6 +404,7 @@
         },
         attach(file) {
           if (file.role === 'plan') {
+            resetConcept();
             attachments = attachments.filter(item => item.role !== 'plan');
             document.getElementById('pdfPage').value = '1';
           }
@@ -268,6 +412,12 @@
           attachments.push(file);
           renderAttachments();
         },
+        planPreview({path, src}) {
+          if (!attachments.some(file => file.role === 'plan' && file.path === path)) return;
+          planImage.src = src;
+          conceptPanel.hidden = false;
+        },
+        previewError(message) { add(message, 'error'); },
         repository(value) {
           if (value && document.activeElement !== repository) {
             repository.value = value;
@@ -282,8 +432,15 @@
           if (result.reset) {
             review.hidden = true;
             attachments = [];
+            resetConcept();
             renderAttachments();
             messages.replaceChildren(); add('Đã bắt đầu cuộc trò chuyện mới.', 'assistant');
+          } else if (result.ok && Array.isArray(result.outline)) {
+            outline = result.outline;
+            frontEdge.value = '';
+            updateOutline();
+            outlineStatus.textContent = 'Kiểm tra đường bao, kéo đỉnh nếu cần và chọn cạnh mặt tiền.';
+            return;
           } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {
             skillContent.value = result.text;
             skillStatus.textContent = '';
@@ -346,7 +503,7 @@
           }
         }
       };
-      send.addEventListener('click', submit);
+      send.addEventListener('click', () => submit());
       document.getElementById('reset').addEventListener('click', () => { if (!busy) window.sketchup.nep_nha_reset(); });
       login.addEventListener('click', () => window.sketchup.nep_nha_login());
       install.addEventListener('click', () => window.sketchup.nep_nha_install_codex());

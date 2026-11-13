@@ -1,5 +1,16 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.6.5
+Phiên bản 1.7.0
+
+Concept ngoại thất
+- Chọn ảnh mặt bằng rồi mở “Concept ngoại thất”. Bấm “Nhận diện đường bao”
+  hoặc tự bấm các góc ngoài theo thứ tự. Kéo đỉnh để hiệu chỉnh.
+- Chọn cạnh mặt tiền trong danh sách, cạnh được đánh dấu màu cam.
+- Nhập chiều ngang bao theo trục ngang của ảnh (mm). Nếu chưa có số đo,
+  có thể chọn dùng ngang bao ước lượng 12.000 mm.
+- Thêm ảnh tham chiếu và chọn vai trò cạnh mỗi ảnh: mái, mặt đứng, vật
+  liệu, chi tiết hoặc phong cách chung. Nhập yêu cầu bổ sung nếu cần.
+- Bấm “Dựng concept theo đường bao”. Nhận diện chỉ tạo bản xem trước;
+  nút dựng mới gửi yêu cầu tạo nhóm trong SketchUp.
 
 Mái hông với 1001bit Pro
 - Trong chat, yêu cầu chuẩn bị mặt mái hông và cung cấp đường bao ngoài
@@ -19,7 +30,7 @@ Mái hông với 1001bit Pro
    - Nếu thấy “Cài thành phần ChatGPT”, bấm nút đó và chờ hoàn tất.
    - Bấm “Tiếp tục với ChatGPT”. Trình duyệt sẽ mở để bạn đăng nhập.
    - Khi trạng thái chuyển thành “Đã kết nối”, nhập yêu cầu và bấm Gửi.
-6. Mở model trống, chọn “Chọn mặt bằng” rồi thêm từ một đến năm ảnh
+6. Mở model trống, bấm “Chọn ảnh mặt bằng” rồi thêm từ một đến năm ảnh
    tham chiếu nếu có. Ảnh hỗ trợ PNG, JPEG và WebP. Mỗi ảnh tối đa 10 MB,
    tổng ảnh tối đa 25 MB. Ví dụ yêu cầu:
    “Dựng tầng trệt theo mặt bằng. Cạnh ngang ngoài cùng dài 6.000 mm.
