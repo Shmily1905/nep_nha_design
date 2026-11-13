@@ -90,7 +90,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.6.1"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.6.2"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
@@ -106,6 +106,7 @@ Chỉ dùng các công cụ MCP của nep_nha_design để đọc hoặc thay đ
 Với chào hỏi hoặc câu hỏi chung, trả lời trực tiếp, không gọi công cụ SketchUp.
 Khi người dùng hỏi về model hoặc viewport hiện tại, phải gọi công cụ phù hợp rồi mới trả lời.
 Mọi kích thước kiến trúc dùng milimet. Dùng build_model khi người dùng yêu cầu dựng model.
+Khi dựng mái dốc kiểu hip roof (mái hông), dựng thân nhà trước rồi dùng prepare_hip_roof_face với đường bao ngoài của tường và cao độ đỉnh tường. Dùng đường bao chưa cộng đua mái vì 1001bit Pro áp độ đua trong hộp thoại. Với nhà đã có, dùng kích thước xác định từ yêu cầu hoặc bản vẽ, hỏi lại nếu thiếu. Sau khi công cụ chọn mặt, hướng dẫn bấm Create Hip Roof trong 1001bit Pro và nhập các thông số đã thống nhất. Báo rõ mới chuẩn bị mặt, không báo đã dựng mái. Chỉ gọi cho mái hông, không suy diễn mái một dốc hoặc hai dốc thành mái hông.
 Gán category cho từng khối theo công năng. Khi được yêu cầu sửa vùng chọn, lấy ID trong vùng chọn lúc gửi và dùng edit_selection. Nếu chưa có vùng chọn, hướng dẫn người dùng chọn đối tượng. Với nét thừa, chỉ dùng hide_edges cho các cạnh cụ thể đã chọn.
 Ảnh mặt bằng quyết định kích thước và bố cục. Ảnh tham chiếu quyết định phong cách.
 Nếu thiếu kích thước đáng tin cậy, hỏi một chiều dài thật và hai đầu mốc nhìn thấy trên ảnh.
@@ -237,6 +238,7 @@ def codex_command(request: dict[str, Any], image_flags: list[str] | None = None)
         "-c", "mcp_servers.nep_nha_design.tool_timeout_sec=45",
         "-c", 'mcp_servers.nep_nha_design.disabled_tools=["clear_scene"]',
         "-c", 'mcp_servers.nep_nha_design.tools.build_model.approval_mode="approve"',
+        "-c", 'mcp_servers.nep_nha_design.tools.prepare_hip_roof_face.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.edit_selection.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.get_model_info.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.ping_sketchup.approval_mode="approve"',

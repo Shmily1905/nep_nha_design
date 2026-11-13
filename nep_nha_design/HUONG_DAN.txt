@@ -1,5 +1,13 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.6.1
+Phiên bản 1.6.2
+
+Mái hông với 1001bit Pro
+- Trong chat, yêu cầu chuẩn bị mặt mái hông và cung cấp đường bao ngoài
+  của tường cùng cao độ đỉnh tường nếu chưa có trong bản vẽ.
+- Nếp Nhà tạo nhóm “Mái - 1001bit Pro”, mở nhóm và chọn mặt ngang.
+- Giữ mặt đang chọn, bấm Create Hip Roof trên thanh công cụ 1001bit Pro.
+  Điền Roof pitch (độ dốc), Roof overhang (đua mái), Vertical offset
+  (chênh cao) và Fascia depth (chiều cao diềm). Bấm Create Hip Roof để dựng.
 
 1. Trong SketchUp, mở Extensions > Extension Manager > Install Extension.
 2. Chọn tệp RBZ này và khởi động lại SketchUp.

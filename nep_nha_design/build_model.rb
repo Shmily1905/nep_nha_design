@@ -3,6 +3,55 @@
 module NepNhaDesign
   module Bridge
     class << self
+      def prepare_hip_roof_face(model, params)
+        id = params['roof_id']
+        polygon = params['footprint_mm']
+        elevation = params['elevation_mm']
+        unless id.is_a?(String) && id.match?(/\A[a-zA-Z0-9_-]{1,64}\z/) &&
+               valid_footprint?(polygon) && elevation.is_a?(Numeric) &&
+               elevation.between?(-100_000, 100_000)
+          raise RPCError.new(-32602, 'Invalid roof ID, footprint or elevation')
+        end
+
+        group = model.entities.grep(Sketchup::Group).find do |item|
+          item.get_attribute('NepNhaDesign', 'hip_roof_id') == id
+        end
+        if model.active_path && (!group || model.active_path != [group])
+          raise RPCError.new(-32001, 'Exit the current group before preparing a roof face')
+        end
+
+        fingerprint = Digest::SHA256.hexdigest(JSON.generate([polygon, elevation]))
+        if group
+          face = model.find_entity_by_persistent_id(group.get_attribute('NepNhaDesign', 'hip_roof_face_id'))
+          unless group.get_attribute('NepNhaDesign', 'hip_roof_input') == fingerprint &&
+                 face.is_a?(Sketchup::Face) && group.entities.to_a.include?(face)
+            raise RPCError.new(-32602, 'Roof ID is already in use. Check the existing roof before trying again.')
+          end
+        else
+          group, face = with_operation(model) do
+            item = model.entities.add_group
+            item.name = 'Mái - 1001bit Pro'
+            points = polygon.map { |x, y| Geom::Point3d.new(x.mm, y.mm, elevation.mm) }
+            surface = item.entities.add_face(points)
+            unless surface && surface.vertices.length == points.length
+              raise RPCError.new(-32602, 'Roof footprint must be a single closed polygon')
+            end
+
+            surface.reverse! if surface.normal.z < 0
+            item.set_attribute('NepNhaDesign', 'hip_roof_id', id)
+            item.set_attribute('NepNhaDesign', 'hip_roof_input', fingerprint)
+            item.set_attribute('NepNhaDesign', 'hip_roof_face_id', surface.persistent_id)
+            [item, surface]
+          end
+        end
+
+        model.active_path = [group] unless model.active_path
+        model.selection.clear
+        model.selection.add(face)
+        { roof_id: id, group_id: group.persistent_id, face_id: face.persistent_id,
+          elevation_mm: elevation, status: 'face_selected', next_tool: '1001bit Pro / Create Hip Roof' }
+      end
+
       def build_model(model, params)
         raise RPCError.new(-32001, 'Exit group editing before building') if model.active_path
 
@@ -83,19 +132,22 @@ module NepNhaDesign
           name = solid['name']
           color = solid['hex_color']
           opacity = solid.fetch('opacity', 1.0)
-          valid_polygon = polygon.is_a?(Array) && polygon.length.between?(3, 32) &&
-                          polygon.uniq.length == polygon.length &&
-                          polygon.all? do |point|
-                            point.is_a?(Array) && point.length == 2 &&
-                              point.all? { |value| value.is_a?(Numeric) && value.between?(-1_000_000, 1_000_000) }
-                          end
-          return if name.is_a?(String) && name.length.between?(1, 100) && valid_polygon &&
+          return if name.is_a?(String) && name.length.between?(1, 100) && valid_footprint?(polygon) &&
                     color.is_a?(String) && color.match?(/\A#[0-9a-fA-F]{6}\z/) &&
                     opacity.is_a?(Numeric) && opacity.between?(0, 1) &&
                     solid['base_mm'].is_a?(Numeric) && solid['base_mm'].between?(-100_000, 100_000) &&
                     solid['height_mm'].is_a?(Numeric) && solid['height_mm'].between?(1, 100_000)
         end
         raise RPCError.new(-32602, "Invalid solid at position #{index}")
+      end
+
+      def valid_footprint?(polygon)
+        polygon.is_a?(Array) && polygon.length.between?(3, 32) &&
+          polygon.uniq.length == polygon.length &&
+          polygon.all? do |point|
+            point.is_a?(Array) && point.length == 2 &&
+              point.all? { |value| value.is_a?(Numeric) && value.between?(-1_000_000, 1_000_000) }
+          end
       end
 
       def build_summary(group, id, scale, created)

@@ -143,6 +143,22 @@ async def edit_selection(
 
 
 @mcp.tool()
+async def prepare_hip_roof_face(
+    roof_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+    footprint_mm: Annotated[list[tuple[float, float]], Field(min_length=3, max_length=32)],
+    elevation_mm: Annotated[float, Field(ge=-100_000, le=100_000)],
+) -> dict[str, Any]:
+    """Create and select a horizontal roof footprint for the user to run
+    1001bit Pro Create Hip Roof. Use exterior wall XY coordinates without
+    overhang and the wall plate elevation in mm. Reuse identical input and
+    roof_id when retrying. This prepares the face, not the sloped roof."""
+    return await rpc(
+        "prepare_hip_roof_face", roof_id=roof_id, footprint_mm=footprint_mm,
+        elevation_mm=elevation_mm,
+    )
+
+
+@mcp.tool()
 async def build_model(
     build_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
     name: AssetName,

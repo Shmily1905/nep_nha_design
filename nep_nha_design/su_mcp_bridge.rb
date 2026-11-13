@@ -12,7 +12,7 @@ module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.6.1'
+    VERSION = '1.6.2'
     MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8
@@ -192,6 +192,8 @@ module NepNhaDesign
           upsert_material(active_model, params)
         when 'build_model'
           build_model(active_model, params)
+        when 'prepare_hip_roof_face'
+          prepare_hip_roof_face(active_model, params)
         when 'edit_selection'
           edit_selection(active_model, params)
         else
