@@ -27,7 +27,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.6.3'
+    VERSION = '1.6.4'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -178,30 +178,11 @@ module NepNhaDesign
         @chat_dialog.set_file(CHAT_HTML_PATH)
         @chat_dialog.add_action_callback('nep_nha_send') { |_context, raw| receive_chat(raw) }
         @chat_dialog.add_action_callback('nep_nha_save_skill') { |_context, content| save_skill(content) }
-        @chat_dialog.add_action_callback('nep_nha_pick_image') do |_context, role|
-          next unless %w[plan reference].include?(role)
-
-          # SketchUp's Windows file dialog can silently omit PDF files when
-          # PDF and image wildcards are combined in one filter. Leave the
-          # plan picker unfiltered and validate the selected file ourselves.
-          filter = role == 'plan' ? '*.*' : 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
-          title = role == 'plan' ? 'Chọn mặt bằng (PDF hoặc ảnh)' : 'Chọn ảnh tham chiếu'
-          path = UI.openpanel(title, '', filter)
-          if path
-            allowed = role == 'plan' ? %w[.pdf .png .jpg .jpeg .webp] : %w[.png .jpg .jpeg .webp]
-            unless allowed.include?(File.extname(path).downcase)
-              message = if role == 'plan'
-                          'Mặt bằng chỉ hỗ trợ PDF, PNG, JPG, JPEG hoặc WebP.'
-                        else
-                          'Ảnh tham chiếu chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
-                        end
-              UI.messagebox(message)
-              next
-            end
-
-            data = JSON.generate({ role: role, path: path, name: File.basename(path) })
-            @chat_dialog.execute_script("window.NepNhaChat.attach(#{data})")
-          end
+        # Keep plan and reference picking on separate callback names. This
+        # avoids role arguments being misrouted by SketchUp's HtmlDialog.
+        @chat_dialog.add_action_callback('nep_nha_pick_plan') { |_context| pick_attachment('plan') }
+        @chat_dialog.add_action_callback('nep_nha_pick_reference') do |_context|
+          pick_attachment('reference')
         end
         @chat_dialog.add_action_callback('nep_nha_skills') do |_context|
           directory = skills_dir
@@ -253,6 +234,30 @@ module NepNhaDesign
         @chat_dialog.show
       rescue StandardError => e
         UI.messagebox("Không mở được bảng chat: #{e.message}")
+      end
+
+      def pick_attachment(role)
+        is_plan = role == 'plan'
+        # Combined PDF/image filters are unreliable in SketchUp on Windows.
+        # Show all plan files, then enforce supported extensions ourselves.
+        filter = is_plan ? '*.*' : 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
+        title = is_plan ? 'Chọn mặt bằng PDF hoặc ảnh' : 'Chọn ảnh tham chiếu'
+        path = UI.openpanel(title, '', filter)
+        return unless path
+
+        allowed = is_plan ? %w[.pdf .png .jpg .jpeg .webp] : %w[.png .jpg .jpeg .webp]
+        unless allowed.include?(File.extname(path).downcase)
+          message = if is_plan
+                      'Mặt bằng chỉ hỗ trợ PDF, PNG, JPG, JPEG hoặc WebP.'
+                    else
+                      'Ảnh tham chiếu chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
+                    end
+          UI.messagebox(message)
+          return
+        end
+
+        data = JSON.generate({ role: role, path: path, name: File.basename(path) })
+        @chat_dialog.execute_script("window.NepNhaChat.attach(#{data})")
       end
 
       def receive_chat(raw)
