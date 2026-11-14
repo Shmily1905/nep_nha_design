@@ -192,14 +192,8 @@ module NepNhaDesign
             next unless opening.fetch('kind', 'door') == 'door' && opening.fetch('height_mm') >= 2600
 
             wall = solids.fetch(opening.fetch('wall_index'))
-            glass = {
-              'name' => 'Ô kính cố định trên cửa', 'footprint_mm' => opening_polygon(opening, 10),
-              'base_mm' => wall.fetch('base_mm') + opening.fetch('sill_mm', 0) + 2400,
-              'height_mm' => opening.fetch('height_mm') - 2400, 'hex_color' => '#77BDD6',
-              'material_key' => 'Kính cố định', 'opacity' => 0.45
-            }
             parent = categories['window'] ||= root.entities.add_group.tap { |item| item.name = labels.fetch('window') }
-            extrude_solid(parent.entities, glass).material = solid_material(model, glass, palette)
+            add_opening_glass(model, parent.entities, wall, opening, palette)
           end
           build_summary(root, id, scale, true)
         end
@@ -240,6 +234,84 @@ module NepNhaDesign
           end
           material
         end
+      end
+
+      def selected_wall(model, id)
+        wall = model.selection.to_a.first if model.selection.length == 1
+        unless (wall.is_a?(Sketchup::Group) || wall.is_a?(Sketchup::ComponentInstance)) &&
+               wall.persistent_id == id && !wall.locked? && wall.manifold?
+          raise RPCError.new(-32602, 'Chọn đúng một group/component tường kín (Solid) và mở khóa.')
+        end
+        wall
+      end
+
+      def inspect_wall(model, params)
+        wall = selected_wall(model, params['wall_id'])
+        faces = wall.definition.entities.grep(Sketchup::Face)
+        sides = faces.filter_map do |face|
+          points = face.outer_loop.vertices.map { |vertex| vertex.position.transform(wall.transformation) }
+          next unless points.length.between?(3, 32)
+
+          points.map { |point| point_mm(point).map { |value| value.round(2) } }
+        end
+        { wall_id: wall.persistent_id, name: wall.name,
+          bounds_mm: { min: point_mm(wall.bounds.min), max: point_mm(wall.bounds.max) },
+          coordinate_space: 'active editing context', face_count: faces.length, face_loops_mm: sides.first(48) }
+      end
+
+      public :inspect_wall
+
+      def cut_existing_wall(model, params)
+        wall = selected_wall(model, params['wall_id'])
+        if Array(model.active_path).any? { |parent| parent.locked? || parent.definition.instances.length != 1 }
+          raise RPCError.new(-32602, 'Hãy mở khóa và Make Unique nhóm/component cha trước khi khoét.')
+        end
+
+        bounds = wall.bounds
+        data = { 'category' => 'wall', 'name' => wall.name, 'base_mm' => bounds.min.z.to_mm,
+                 'height_mm' => bounds.depth.to_mm }
+        opening = params['opening']
+        raise RPCError.new(-32602, 'Thiếu thông số ô mở.') unless opening.is_a?(Hash)
+
+        opening = opening.merge('wall_index' => 0)
+        validate_opening(opening, [data])
+        entities = model.active_entities
+        with_operation(model) do
+          material = wall.material
+          layer = wall.layer
+          shadows = [wall.casts_shadows?, wall.receives_shadows?]
+          attributes = wall.attribute_dictionaries&.flat_map { |dictionary|
+            dictionary.map { |key, value| [dictionary.name, key, value] }
+          } || []
+          cut = cut_wall_opening(entities, wall, data, opening)
+          cut.layer = layer
+          cut.material = material
+          cut.casts_shadows, cut.receives_shadows = shadows
+          attributes.each do |dictionary, key, value|
+            next if %w[SU_InstanceSet SU_DefinitionSet].include?(dictionary)
+
+            cut.set_attribute(dictionary, key, value)
+          end
+          glass = add_opening_glass(model, entities, data, opening, {})
+          model.selection.clear
+          model.selection.add(cut)
+          { wall_id: cut.persistent_id, fixed_glass_id: glass&.persistent_id, height_mm: opening['height_mm'] }
+        end
+      end
+
+      def add_opening_glass(model, entities, wall, opening, palette)
+        height = opening.fetch('height_mm')
+        return unless opening.fetch('kind', 'door') == 'door' && height >= 2600
+
+        glass = {
+          'name' => 'Ô kính cố định trên cửa', 'footprint_mm' => opening_polygon(opening, 10),
+          'base_mm' => wall.fetch('base_mm') + opening.fetch('sill_mm', 0) + 2400,
+          'height_mm' => height - 2400, 'hex_color' => '#77BDD6',
+          'material_key' => 'Kính cố định', 'opacity' => 0.45
+        }
+        group = extrude_solid(entities, glass)
+        group.material = solid_material(model, glass, palette)
+        group
       end
 
       def validate_opening(opening, solids)

@@ -96,7 +96,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.9.0"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.9.1"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
@@ -115,6 +115,7 @@ Mọi kích thước kiến trúc dùng milimet. Dùng build_model khi người 
 Khi dựng mái dốc kiểu hip roof (mái hông), dựng thân nhà trước rồi dùng prepare_hip_roof_face với đường bao ngoài của tường và cao độ đỉnh tường. Dùng đường bao chưa cộng đua mái vì 1001bit Pro áp độ đua trong hộp thoại. Với nhà đã có, dùng kích thước xác định từ yêu cầu hoặc bản vẽ, hỏi lại nếu thiếu. Sau khi công cụ chọn mặt, hướng dẫn bấm Create Hip Roof trong 1001bit Pro và nhập các thông số đã thống nhất. Báo rõ mới chuẩn bị mặt, không báo đã dựng mái. Chỉ gọi cho mái hông, không suy diễn mái một dốc hoặc hai dốc thành mái hông.
 Gán category cho từng khối theo công năng. Khi được yêu cầu sửa vùng chọn, lấy ID trong vùng chọn lúc gửi và dùng edit_selection. Nếu chưa có vùng chọn, hướng dẫn người dùng chọn đối tượng. Với nét thừa, chỉ dùng hide_edges cho các cạnh cụ thể đã chọn.
 Ảnh mặt bằng quyết định kích thước và bố cục. Khi có nhiều trang PDF, xác định tầng theo tên bản vẽ, dùng base_mm theo cao độ từng tầng và hỏi nếu chưa rõ cách chồng tầng; không suy diễn thứ tự tầng theo số trang. Ảnh tham chiếu chỉ quyết định phong cách, vật liệu, ánh sáng và chi tiết bề mặt.
+Với tường hiện hữu, lấy ID vùng chọn lúc gửi và gọi inspect_wall trước. Dùng hình học mặt để xác định phương, tim, bề dày và cao độ tường. Chỉ gọi cut_existing_wall khi người dùng yêu cầu khoét và đã rõ kích thước cùng vị trí ô mở. Hỏi lại nếu thiếu số đo hoặc tường không phải phương đứng. Không gọi build_model thay cho thao tác khoét tường cũ. Sau khi khoét, đọc ID mới từ kết quả; không thử lại với ID cũ.
 Khi dựng model chi tiết, truyền nguyên khối tường trong solids và khai báo ô trống qua openings. Không chia sẵn tường quanh cửa. Dùng start_mm và end_mm là hai đầu bề rộng ô trên tim tường, nằm gọn giữa hai đầu đoạn tường; wall_thickness_mm là bề dày thật, sill_mm tính từ chân tường, wall_index đánh số từ 0. Với cửa đi, chọn tổng cao 2200/2400/2600/2700/2800 mm; công cụ tự tạo kính cố định trên cánh cao 2400 mm cho ba mức cao từ 2600 mm. Khi tự tạo cánh, đặt nó trong ô cửa, chừa khe phù hợp và giữ chiều cao cánh dưới ô kính. Dùng material_key giống nhau cho các khối cùng vật liệu và cùng màu/độ trong suốt.
 Nếu thiếu kích thước đáng tin cậy, hỏi một chiều dài thật và hai đầu mốc nhìn thấy trên ảnh.
 Chỉ dùng tỷ lệ ước lượng khi người dùng cho phép dựng concept. Nêu giả định về tỷ lệ và chiều cao.
@@ -285,6 +286,8 @@ def codex_command(request: dict[str, Any], image_flags: list[str] | None = None)
         "-c", 'mcp_servers.nep_nha_design.disabled_tools=["clear_scene"]',
         "-c", 'mcp_servers.nep_nha_design.tools.build_model.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.prepare_hip_roof_face.approval_mode="approve"',
+        "-c", 'mcp_servers.nep_nha_design.tools.inspect_wall.approval_mode="approve"',
+        "-c", 'mcp_servers.nep_nha_design.tools.cut_existing_wall.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.edit_selection.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.get_model_info.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.ping_sketchup.approval_mode="approve"',

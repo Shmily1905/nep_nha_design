@@ -32,14 +32,31 @@
     .auth-actions, .render-actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
     button { border:0; border-radius:8px; cursor:pointer; font-weight:650; }
     .link { padding:7px 9px; color:var(--ink); background:var(--surface); border:1px solid var(--line); white-space:nowrap; }
-    footer { padding:0 14px 14px; max-height:66vh; overflow:auto; }
+    footer { padding:0 14px 12px; max-height:55vh; overflow:auto; }
     input, textarea, select, button { font:inherit; }
     textarea, input:not([type=checkbox]), select { background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px; }
     button { min-height:32px; }
     button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     button:disabled { opacity:.48; cursor:default; }
     header { border-bottom:1px solid var(--line); }
-    header .theme { margin-left:auto; }
+    header .theme { margin-left:auto; width:26px; min-height:26px; border:2px solid var(--line); border-radius:50%;
+      background:linear-gradient(135deg,#ff9b53 0 36%,#192638 37% 67%,#fff2e8 68%); }
+    .composer { display:flex; gap:5px; flex-wrap:wrap; align-items:center; margin:5px 0; }
+    .composer .link { min-height:27px; padding:3px 7px; font-size:11px; }
+    #prompt { display:block; min-height:50px; padding:7px 9px; }
+    #attachments { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
+    .attachment { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:100%;
+      padding:2px 4px 2px 6px; border:1px solid var(--line); border-radius:6px; font-size:11px; }
+    .attachment-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; min-width:0; }
+    .attachment select { flex-shrink:0; max-width:110px; padding:1px 2px; }
+    .attachment button, .message .save-reply { min-height:22px; padding:0 5px; font-size:11px; }
+    .message .save-reply { display:block; margin-top:7px; }
+    #skillMenu { position:relative; margin:0; padding:3px 7px; }
+    #skillMenu[open] { flex-basis:100%; }
+    #skillMenu[open] > div { display:flex; flex-wrap:wrap; gap:4px; padding-top:4px; }
+    .account { padding:5px 8px; margin-bottom:4px; }
+    .account .auth-actions:has(button:not([hidden])) { margin-top:4px; }
+    .account .auth-actions { margin-top:0; }
     .version { margin-left:0; }
     details { border:1px solid var(--line); border-radius:10px; padding:8px; }
     summary { cursor:pointer; font-weight:700; color:var(--accent); }
@@ -71,21 +88,24 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><select class="theme" id="theme" aria-label="Giao diện"><option value="dark">Cam · Xanh đen</option><option value="light">Cam · Trắng</option></select><span class="version" aria-label="Phiên bản 1.9.0">v1.9.0</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.9.1">v1.9.1</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
     <div class="auth-actions"><button class="link" id="login" hidden>Tiếp tục với ChatGPT</button><button class="link" id="install" hidden>Cài thành phần ChatGPT</button></div>
-    <p class="hint">Không cần API key. Dùng hạn mức của gói ChatGPT đủ điều kiện.</p>
   </section>
   <div id="updateBanner" role="status" hidden></div>
   <footer>
     <textarea id="prompt" placeholder="Ví dụ: Kiểm tra model hiện tại giúp tôi"></textarea>
-    <div class="auth-actions">
-      <button class="link" id="pickPlan">Chọn mặt bằng / PDF</button>
-      <button class="link" id="pickReference">Thêm ảnh tham chiếu</button>
-      <button class="link" id="openSkills">Mở kho skill</button>
-      <button class="link" id="draftSkill">Soạn skill từ chat</button>
+    <div class="composer">
+      <button type="button" class="link" id="pickPlan">Mặt bằng / PDF</button>
+      <button type="button" class="link" id="pickReference">Ảnh tham chiếu</button>
+      <button type="button" class="link" id="readWall" title="Đọc tường đang chọn trong SketchUp">Đọc tường</button>
+      <details id="skillMenu"><summary>Skill</summary><div>
+        <button type="button" class="link" id="writeSkill">Viết skill</button>
+        <button type="button" class="link" id="draftSkill">Soạn từ chat</button>
+        <button type="button" class="link" id="openSkills">Mở kho skill</button>
+      </div></details>
     </div>
     <section id="skillReview" hidden>
       <label for="skillContent">Bản nháp skill</label>
@@ -190,12 +210,14 @@
       let release = '';
       let updateBusy = false;
       const theme = document.getElementById('theme');
-      theme.value = load('nn-theme') === 'light' ? 'light' : 'dark';
-      document.documentElement.dataset.theme = theme.value;
-      theme.onchange = () => {
-        document.documentElement.dataset.theme = theme.value;
-        save('nn-theme', theme.value);
-      };
+      function setTheme(value) {
+        document.documentElement.dataset.theme = value;
+        theme.setAttribute('aria-pressed', String(value === 'light'));
+        theme.title = value === 'light' ? 'Chuyển sang Cam · Xanh đen' : 'Chuyển sang Cam · Trắng';
+        save('nn-theme', value);
+      }
+      setTheme(load('nn-theme') === 'light' ? 'light' : 'dark');
+      theme.onclick = () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
       repository.value = load('nn-repository') || 'Shmily1905/nep_nha_design';
       fast.checked = load('nn-fast') !== 'off';
       fast.addEventListener('change', () => save('nn-fast', fast.checked ? 'on' : 'off'));
@@ -259,6 +281,14 @@
           img.className = 'viewport'; img.alt = 'Ảnh viewport SketchUp';
           img.src = `data:${image.mime_type};base64,${image.data}`;
           item.appendChild(img);
+        }
+        if (role === 'assistant' && text) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'link save-reply';
+          button.textContent = 'Lưu thành skill';
+          button.onclick = () => openSkillReview(text.startsWith('# ') ? text : `# Quy tắc thiết kế\n\n${text}`);
+          item.appendChild(button);
         }
         messages.appendChild(item); messages.scrollTop = messages.scrollHeight;
         return item;
@@ -472,11 +502,17 @@
         const list = document.getElementById('attachments');
         list.replaceChildren();
         attachments.forEach((file, index) => {
+          const chip = document.createElement('div');
+          chip.className = 'attachment';
+          const name = document.createElement('span');
+          name.className = 'attachment-name';
+          name.textContent = `${file.role === 'plan' ? 'Mặt bằng · ' : ''}${file.name}`;
+          name.title = file.name;
+          chip.appendChild(name);
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'link';
-          const label = file.role === 'plan' ? 'Mặt bằng' : 'Tham chiếu';
-          button.textContent = `${label}: ${file.name} ×`;
+          button.textContent = '×';
           button.setAttribute('aria-label', `Bỏ ảnh ${file.name}`);
           button.addEventListener('click', () => {
             if (busy) return;
@@ -484,15 +520,16 @@
             if (file.role === 'plan') { previewToken++; resetConcept(); }
             renderAttachments();
           });
-          list.appendChild(button);
           if (file.role === 'reference') {
             const select = document.createElement('select');
             select.setAttribute('aria-label', `Vai trò của ${file.name}`);
             for (const [value, label] of referencePurposes) select.add(new Option(label, value));
             select.value = file.purpose || 'style';
             select.onchange = () => { file.purpose = select.value; };
-            list.appendChild(select);
+            chip.appendChild(select);
           }
+          chip.appendChild(button);
+          list.appendChild(chip);
         });
       }
       function callPicker(name, legacyRole) {
@@ -507,13 +544,33 @@
         if (!busy && attachments.filter(file => file.role === 'reference').length < 5)
           callPicker('nep_nha_pick_reference', 'reference');
       };
-      document.getElementById('openSkills').onclick = () => window.sketchup.nep_nha_skills();
+      document.getElementById('readWall').onclick = () => {
+        if (!busy) window.sketchup.nep_nha_read_wall();
+      };
+      const skillMenu = document.getElementById('skillMenu');
+      document.getElementById('openSkills').onclick = () => {
+        skillMenu.open = false;
+        window.sketchup.nep_nha_skills();
+      };
       const review = document.getElementById('skillReview');
       const skillContent = document.getElementById('skillContent');
       const skillStatus = document.getElementById('skillStatus');
       const saveSkill = document.getElementById('saveSkill');
+      function openSkillReview(text) {
+        if (saveSkill.disabled) return;
+        skillMenu.open = false;
+        skillContent.value = text;
+        skillStatus.textContent = '';
+        review.hidden = false;
+        skillContent.focus();
+      }
+      document.getElementById('writeSkill').onclick = () => {
+        const text = prompt.value.trim();
+        openSkillReview(text.startsWith('# ') ? text : `# Quy tắc thiết kế\n\n${text}`);
+      };
       document.getElementById('draftSkill').onclick = () => {
         if (busy || !authReady || !review.hidden) return;
+        skillMenu.open = false;
         busy = true; send.disabled = model.disabled = pdfPage.disabled = true;
         renderControls();
         const wait = add('Đang soạn bản nháp skill…', 'assistant thinking');
@@ -555,6 +612,12 @@
       }
 
       window.NepNhaChat = {
+        wallRead(result) {
+          if (result.error) { add(result.error, 'error'); return; }
+          const {min, max} = result.bounds_mm;
+          const dimension = max.map((value, index) => Math.round(value - min[index]));
+          add(`${result.name || 'Tường đang chọn'} · ID ${result.wall_id}\nKích thước bao XYZ ${dimension.join(' × ')} mm · ${result.face_count} mặt\nNhập yêu cầu khoét và nêu vị trí, chiều rộng, chiều cao ô mở.`, 'assistant');
+        },
         skillSaved(result) {
           saveSkill.disabled = false;
           if (result.error) { skillStatus.textContent = result.error; return; }
@@ -651,10 +714,7 @@
             outlineStatus.textContent = 'Kiểm tra đường bao, kéo đỉnh nếu cần và chọn cạnh mặt tiền.';
             return;
           } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {
-            skillContent.value = result.text;
-            skillStatus.textContent = '';
-            review.hidden = false;
-            skillContent.focus();
+            openSkillReview(result.text);
             return;
           } else if (result.ok) {
             const images = result.images || [];

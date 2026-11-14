@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.9.0
+Phiên bản 1.9.1
 
 Mặt bằng PDF và cửa
 - Bấm “Chọn mặt bằng / PDF”. Chọn trang xem trước để nhận diện đường bao hoặc
@@ -9,6 +9,15 @@ Mặt bằng PDF và cửa
 - Khi dựng chi tiết, trợ lý tạo tường rồi dùng Solid Tools đục ô cửa. Cửa đi cao
   2200, 2400, 2600, 2700 hoặc 2800 mm. Ba mức cao từ 2600 mm có kính cố định
   trên cao độ 2400 mm tính từ chân tường. Thao tác đục cần SketchUp hỗ trợ Solid Tools.
+
+Tường hiện hữu và lưu skill
+- Chọn một group/component Solid, bấm “Đọc tường” để xem kích thước bao.
+  Gửi yêu cầu khoét kèm vị trí, chiều rộng và chiều cao. Solid Tools tạo một
+  group thay thế tại chỗ. Dùng Undo nếu cần hoàn tác. Nếu tường nằm trong
+  nhóm/component cha dùng chung, hãy Make Unique nhóm/component cha trước.
+- Trong menu Skill, chọn “Viết skill” để lưu nội dung trực tiếp, hoặc
+  “Soạn từ chat”. Có thể bấm “Lưu thành skill” ngay dưới câu trả lời rồi
+  chỉnh nội dung trước khi lưu vào kho.
 
 Render
 - Mở mục Render. Ảnh Material ID đi theo góc nhìn đang mở. Chọn scene trong

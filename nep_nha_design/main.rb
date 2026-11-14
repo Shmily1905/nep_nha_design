@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.9.0'
+    VERSION = '1.9.1'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -177,12 +177,22 @@ module NepNhaDesign
         @render_dir = Dir.mktmpdir('nep-nha-render-')
         @render_source = @render_signature = @render_selected = nil
         @chat_dialog = UI::HtmlDialog.new(
-          dialog_title: 'Trợ lý AI Nếp Nhà', width: 510, height: 740,
-          min_width: 370, min_height: 480, resizable: true,
+          dialog_title: 'Trợ lý AI Nếp Nhà', width: 510, height: 890,
+          min_width: 370, min_height: 620, resizable: true,
           preferences_key: 'NepNhaDesign.Assistant', style: UI::HtmlDialog::STYLE_UTILITY
         )
         @chat_dialog.set_file(CHAT_HTML_PATH)
         @chat_dialog.add_action_callback('nep_nha_send') { |_context, raw| receive_chat(raw) }
+        @chat_dialog.add_action_callback('nep_nha_read_wall') do |_context|
+          model = Sketchup.active_model
+          id = model.selection.to_a.first&.persistent_id
+          begin
+            result = Bridge.inspect_wall(model, { 'wall_id' => id })
+          rescue StandardError => e
+            result = { error: e.message }
+          end
+          @chat_dialog.execute_script("window.NepNhaChat.wallRead(#{JSON.generate(result)})")
+        end
         @chat_dialog.add_action_callback('nep_nha_save_skill') { |_context, content| save_skill(content) }
         # Keep plan and reference picking on separate callback names. This
         # avoids role arguments being misrouted by SketchUp's HtmlDialog.

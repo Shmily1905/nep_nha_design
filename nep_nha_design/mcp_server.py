@@ -131,14 +131,33 @@ class Solid(BaseModel):
     category: Literal["roof", "wall", "floor", "door", "window", "planter", "other"] = "other"
 
 
-class Opening(BaseModel):
-    wall_index: Annotated[int, Field(ge=0, lt=200)]
+class WallOpening(BaseModel):
     start_mm: tuple[float, float]
     end_mm: tuple[float, float]
     wall_thickness_mm: Annotated[float, Field(ge=20, le=3000)]
     sill_mm: Annotated[float, Field(ge=0, le=100_000)] = 0
     height_mm: Annotated[float, Field(ge=50, le=100_000)]
     kind: Literal["door", "window"] = "door"
+
+
+class Opening(WallOpening):
+    wall_index: Annotated[int, Field(ge=0, lt=200)]
+
+
+@mcp.tool()
+async def inspect_wall(wall_id: int) -> dict[str, Any]:
+    """Read the one selected solid wall: bounds and outer face loops in mm,
+    relative to the current edit context. Use before cutting an existing wall."""
+    return await rpc("inspect_wall", wall_id=wall_id)
+
+
+@mcp.tool()
+async def cut_existing_wall(wall_id: int, opening: WallOpening) -> dict[str, Any]:
+    """Cut one opening in the inspected selected solid only. Coordinates are in
+    the active editing context. Use opening width endpoints on the wall centerline,
+    measured thickness, sill from wall base and height in mm. SketchUp returns a
+    replacement group with a new ID. Tall doors get fixed glazing above 2400 mm."""
+    return await rpc("cut_existing_wall", wall_id=wall_id, opening=opening.model_dump(mode="json"))
 
 
 @mcp.tool()

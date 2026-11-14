@@ -12,7 +12,7 @@ module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.9.0'
+    VERSION = '1.9.1'
     MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8
@@ -196,6 +196,10 @@ module NepNhaDesign
           build_model(active_model, params)
         when 'prepare_hip_roof_face'
           prepare_hip_roof_face(active_model, params)
+        when 'inspect_wall'
+          inspect_wall(active_model, params)
+        when 'cut_existing_wall'
+          cut_existing_wall(active_model, params)
         when 'edit_selection'
           edit_selection(active_model, params)
         else
