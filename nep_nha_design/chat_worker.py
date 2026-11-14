@@ -97,7 +97,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.10.0"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.10.1"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
@@ -110,7 +110,6 @@ def list_models(executable):
 INSTRUCTIONS = """Bạn là Trợ lý AI của Nếp Nhà Design chạy bên trong SketchUp.
 Trả lời bằng tiếng Việt, ngắn gọn và dễ hiểu cho người mới.
 Chỉ dùng các công cụ MCP của nep_nha_design để đọc hoặc thay đổi SketchUp; không dùng shell.
-Với Large Tool Set, dùng skill 04 để chọn giữa thao tác MCP và công cụ kéo thả. Chỉ gọi activate_native_tool khi người dùng muốn mở công cụ để thao tác trực tiếp.
 Với chào hỏi hoặc câu hỏi chung, trả lời trực tiếp, không gọi công cụ SketchUp.
 Khi người dùng hỏi về model hoặc viewport hiện tại, phải gọi công cụ phù hợp rồi mới trả lời.
 Mọi kích thước kiến trúc dùng milimet. Dùng build_model khi người dùng yêu cầu dựng model.
@@ -255,9 +254,14 @@ def design_skills(request: dict[str, Any]) -> tuple[str, bool]:
     local = Path(request["local_skills_dir"])
     builtin = Path(__file__).with_name("design-skills") / "04-sketchup-large-tool-set.md"
     def with_builtin(content):
-        if not builtin.is_file() or f"### {builtin.name}\n" in content:
+        if not builtin.is_file():
             return content
-        return content + f"\n\n### {builtin.name}\n" + builtin.read_text(encoding="utf-8-sig")
+        heading = f"### {builtin.name}"
+        section = f"{heading}\n{builtin.read_text(encoding='utf-8-sig').rstrip()}"
+        pattern = rf"^{re.escape(heading)}\n.*?(?=^### [^\n]+\.md$|\Z)"
+        updated, count = re.subn(pattern, lambda _: section + "\n\n", content, flags=re.M | re.S)
+        return updated.rstrip() if count else "\n\n".join(filter(None, (content, section)))
+
 
     if directory == local:
         return with_builtin(read_skills(local)), False
@@ -305,12 +309,6 @@ def codex_command(request: dict[str, Any], image_flags: list[str] | None = None)
         "-c", 'mcp_servers.nep_nha_design.tools.prepare_hip_roof_face.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.inspect_wall.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.cut_existing_wall.approval_mode="approve"',
-        "-c", 'mcp_servers.nep_nha_design.tools.draw_geometry.approval_mode="approve"',
-        "-c", 'mcp_servers.nep_nha_design.tools.edit_drawing.approval_mode="approve"',
-        "-c", 'mcp_servers.nep_nha_design.tools.drawing_camera.approval_mode="approve"',
-        "-c", 'mcp_servers.nep_nha_design.tools.activate_native_tool.approval_mode="approve"',
-        "-c", 'mcp_servers.nep_nha_design.tools.measure_drawing.approval_mode="approve"',
-        "-c", 'mcp_servers.nep_nha_design.tools.set_drawing_axes.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.edit_selection.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.get_model_info.approval_mode="approve"',
         "-c", 'mcp_servers.nep_nha_design.tools.ping_sketchup.approval_mode="approve"',

@@ -1,80 +1,55 @@
-# Large Tool Set của SketchUp 2024 trên Windows
+# Dựng hình bằng Large Tool Set — SketchUp 2024
 
-## Chọn cách thực hiện
+## Lập trình tự dựng
 
-- Khi người dùng yêu cầu tạo hoặc sửa đối tượng và có đủ thông số, gọi MCP. Khi họ hỏi cách dùng, hướng dẫn thao tác trên thanh công cụ và ô Measurements (VCB). Khi họ yêu cầu mở công cụ để tự thao tác, dùng activate_native_tool nếu có khóa được hỗ trợ.
-- activate_native_tool dựa trên send_action, được SketchUp đánh dấu deprecated. queued chỉ xác nhận lệnh đã vào hàng đợi, chưa xác nhận công cụ đã hoạt động hay model đã đổi. Nếu không nhận lệnh, chỉ đường dẫn menu hoặc tìm tên công cụ bằng SketchUp Search. Không dùng ID Windows không được hỗ trợ, tự bấm chuột hay chạy Ruby Console.
-- Vẽ theo XYZ model, mm ở MCP, inch nội bộ Ruby qua Numeric#mm; góc nhập độ và chuyển sang radian qua Numeric#degrees. Hỏi mốc đặt khi kích thước đủ nhưng vị trí chưa xác định. Với vẽ tay, khóa suy luận bằng Shift hoặc phím mũi tên phù hợp; xem tooltip và trạng thái vì phím tắt có thể tùy chỉnh.
-- draw_geometry thêm một group riêng. edit_drawing yêu cầu đúng persistent ID vùng chọn lúc gửi và ở cấp model; thao tác trên model chạy qua một Undo. Push/Pull và Follow Me trực tiếp lên hình rời bằng MCP yêu cầu mặt/cạnh ở cấp model. Với hình trong group, mở group và dùng công cụ tương tác, hoặc dùng build_model cho một khối mới. Tránh kéo dính hình giữa các cấu kiện.
-- Khi đọc tọa độ của entity lồng nhau, chuyển từ tọa độ definition qua InstancePath#transformation. Khi vẽ theo hệ trục người dùng đã chỉnh, đổi điểm sang hệ model bằng Axes#transformation nếu cần. Không dùng một PID làm bằng chứng về bề dày, trục hoặc hình dáng.
-- Các ví dụ dưới đây là dữ liệu hoặc quy trình tham khảo, không phải yêu cầu chỉnh sửa model đang mở.
+1. Đọc mặt bằng, mặt đứng và mặt cắt. Chốt mốc tọa độ, đơn vị, cao độ, trục, khổ bao và vị trí các điểm gãy. Xem ảnh tham chiếu để nhận biết cấu tạo hoặc vật liệu. Chỉ dùng ảnh làm nguồn tỷ lệ khi có kích thước neo cùng mặt phẳng.
+2. Phân tích vật thể thành tiết diện, đường dẫn, trục quay, các tiết diện ở nhiều cao độ, các khối cộng/trừ và các chi tiết lặp. Một đối tượng có thể cần phối hợp nhiều phương pháp.
+3. Dựng đường chuẩn bằng guide; vẽ và kiểm tra biên kín, đồng phẳng trước khi tạo mặt. Tách vật thể độc lập thành group trước khi chạm vào hình học khác. Dùng component cho cấu kiện lặp, Make Unique cho biến thể.
+4. Dựng khối chính trước, rồi khoét mở, thêm chi tiết, làm mềm các cạnh phân đoạn, gán Tag và vật liệu. Giữ các mép gãy thật tại giao mặt cần sắc.
+5. Kiểm tra bằng Top, Front và mặt cắt. Đo khổ bao, bề dày, cao độ và độ hở. Kiểm tra mặt trước hướng ra ngoài. Với vật thể cần kín, kiểm tra Solid trong Entity Info; sửa cạnh hở, mặt trùng, mặt trong và giao xuyên trước Boolean hoặc xuất.
 
-## Chọn và tổ chức
+Khi trợ lý thao tác trên model, dùng các công cụ MCP hiện có và chỉ báo phần đã được công cụ xác nhận. build_model phù hợp cho mặt bằng XY đùn đứng, tường và ô mở có số đo. Khoét tường hiện hữu bằng luồng inspect_wall và cut_existing_wall. Với các dạng vượt phạm vi đó, diễn giải cách tạo bằng công cụ SketchUp theo thông số của bài, gồm điểm cần bấm, hướng, khoảng cách và phép kiểm tra. Các tên Ruby dưới đây giải thích cơ chế hình học.
 
-| Nút | Cách thao tác | Cơ chế Ruby và cách trợ lý xử lý |
+## Công cụ và cơ chế
+
+| Công cụ | Thao tác và ứng dụng | Cơ chế hình học / Ruby API |
 | --- | --- | --- |
-| Select | Bấm cạnh, mặt hay group. Khung trái sang phải lấy vật nằm gọn; phải sang trái lấy cả vật cắt qua khung. | Selection#add/remove/clear, PickHelper#do_pick hoặc #window_pick. Trợ lý đọc ảnh chụp vùng chọn lúc gửi và dùng ID; mở select khi cần người dùng chọn. |
-| Lasso | Vẽ vùng bao tự do; dùng modifier để cộng, trừ hoặc đảo chọn. | Custom Tool có thể dùng screen_coords cùng kiểm tra đa giác 2D và PickHelper để xét đối tượng. Không có khóa activate_native_tool cho Lasso; dùng Tools > Lasso. |
-| Paint Bucket | Chọn vật liệu rồi bấm mặt hoặc group. Alt lấy mẫu; chế độ tô theo vùng hoặc thay hàng loạt cần xác định phạm vi. | Materials và Drawingelement#material=. Face có mặt trước và back_material. edit_drawing paint tô đối tượng đã chọn; upsert_material đổi định nghĩa vật liệu và ảnh hưởng các nơi đang dùng. |
-| Eraser | Bấm hoặc rà trên cạnh để xóa. Shift ẩn; Ctrl làm mềm/mượt; Alt bỏ mềm/mượt. | erase_entities có thể làm mất mặt liền kề; hidden, soft và smooth có ý nghĩa riêng. edit_drawing hỗ trợ từng chế độ cho cạnh đã chọn. |
-| Make Component | Chọn hình, đặt tên/điểm chèn; bản sao thường chia sẻ definition. | Group#to_component chuyển một group đang chọn. Dùng DefinitionList và Entities#add_instance để tạo các instance lặp; make_unique trước khi muốn sửa riêng. |
-| Tag | Chọn Tag rồi bấm đối tượng. Raw geometry nên ở Untagged và gán Tag cho group/component. | Model#layers là tên API lịch sử. ensure_tag tạo hoặc tìm tên, edit_drawing tag gán vào instance. Tag điều khiển hiển thị, group tách hình học. |
+| Select, Lasso | Bấm chọn hoặc quét. Khung trái sang phải lấy đối tượng nằm trọn, phải sang trái lấy đối tượng giao vùng. Lasso hữu ích khi biên chọn lượn theo hình. Kiểm tra cấp chỉnh sửa trước khi thao tác. | Selection, PickHelper và phép chiếu viewport. Chọn group khác với chọn các mặt bên trong. |
+| Paint Bucket | Tô mặt hoặc group, lấy mẫu bằng Alt. Kiểm tra mặt trước, UV và hướng vân. | Face#material, #back_material; vật liệu cấp instance có thể bị vật liệu cấp mặt ghi đè. |
+| Eraser | Xóa cạnh thừa, Shift ẩn, Ctrl làm mềm/mượt. Cạnh chung vẫn ảnh hưởng topology kể cả khi bị ẩn. | Entities#erase_entities có thể làm mất mặt liền kề. Edge#soft, #smooth và #hidden phục vụ các mục đích khác nhau. |
+| Make Component, Tag | Gom cụm lặp thành component, đặt điểm chèn ở mốc lắp ráp. Gán Tag cho group/component, giữ cạnh và mặt rời ở Untagged. | ComponentDefinition chứa hình học chung; ComponentInstance giữ phép biến đổi riêng. Model#layers quản lý Tag. |
+| Line, Freehand | Line đặt hai đầu chính xác và khép vòng phẳng. Freehand vẽ chuỗi nét hữu cơ; dùng ít đoạn đủ mượt. | Entities#add_line, #add_curve, #add_face. Vòng kín cần liên tục và không tự cắt; Curve vẫn gồm nhiều Edge. |
+| Rectangle, Rotated Rectangle | Rectangle dùng hai góc đối. Rotated Rectangle xác định cạnh đầu, mặt phẳng và bề rộng. | Bốn điểm đồng phẳng ghép bằng add_face; cạnh thứ hai vuông góc cạnh đầu trong mặt phẳng chọn. |
+| Circle, Polygon | Chọn mặt phẳng, tâm và bán kính. Polygon xác định số cạnh; phân biệt bán kính ngoại tiếp và nội tiếp. | add_circle / add_ngon tạo tập cạnh. Thêm mặt khi cần đùn; số đoạn ảnh hưởng độ mịn và khả năng bắt điểm. |
+| Arc, 2 Point Arc, 3 Point Arc, Pie | Arc lấy tâm, bán kính, góc quét. 2 Point Arc lấy hai đầu rồi độ võng. 3 Point Arc chọn đầu, điểm trên cung và cuối. Pie khép cung tới tâm. | add_arc dùng tâm, pháp tuyến, hướng bán kính đầu, bán kính, góc và số đoạn. Ba điểm không thẳng hàng xác định đường tròn; điểm trung gian chọn cung lớn hay nhỏ. |
+| Move | Bắt điểm gốc và điểm đích, khóa hướng; Ctrl tạo bản sao. Sau bản sao đầu, dùng nhân hoặc chia đều để tạo dãy. | Translation. Mảng lặp có thể đặt instance chung definition với transformation riêng. |
+| Push/Pull | Đùn mặt theo pháp tuyến với chiều sâu chính xác. Ctrl giữ mặt nguồn khi cần bước đùn mới. | Face#pushpull; dấu khoảng cách theo pháp tuyến. Khoét xuyên bằng mặt ô trên tường khi hình học cùng context và hai mặt song song; dùng Solid Tools khi cắt khối kín. |
+| Rotate | Chọn tâm, mặt phẳng, tia gốc và góc. Sao chép xoay để tạo mảng tròn. | Transformation.rotation quanh trục qua pivot; góc Ruby dùng radian. |
+| Follow Me | Chọn đường dẫn, gọi công cụ rồi bấm mặt tiết diện. Đặt tiết diện tại đầu đường, vuông góc với đoạn đầu khi cần đúng kích thước. | Face#followme với chuỗi Edge liền nhau trong cùng context. Kiểm tra tự cắt ở bán kính cong nhỏ và góc gấp. |
+| Scale | Thay đổi kích thước bằng tay nắm; chọn điểm neo và giữ tỷ lệ theo yêu cầu. | Transformation.scaling. Scale thay tỷ lệ từ tâm neo; không tạo bề dày biên đều như Offset. |
+| Offset | Dịch biên trong mặt phẳng theo khoảng cách, hữu ích cho bề dày tường và khung. | API 2024 không có Face#offset. Dịch các đường hỗ trợ theo pháp tuyến trong mặt phẳng, giao đường liên tiếp rồi xử lý góc lõm, lỗ, cạnh sụp và tự giao. |
+| Flip | Chọn mặt phẳng phản chiếu đúng vị trí; Ctrl sao chép đối xứng. | Phép phản chiếu theo pháp tuyến của mặt phẳng. Kiểm tra định hướng trái/phải và hướng mặt sau phản chiếu. |
+| Tape Measure, Dimensions | Tape Measure đo mốc và dựng guide. Dimensions đặt số đo hiển thị; dùng điểm gắn thật để theo hình học. | Point3d#distance, ConstructionLine/Point, Entities#add_dimension_linear. Nhập lại kích thước sau đo có thể đổi tỷ lệ toàn context. |
+| Protractor, Axes | Dựng guide góc từ đỉnh và tia chuẩn. Đặt gốc, trục đỏ, phía xanh lá để thuận tiện vẽ hình xoay. | Vector3d#angle_between, Transformation.rotation, Axes#set. Đổi trục vẽ không dời hình học; dùng chuyển đổi hệ trục khi tính tọa độ. |
+| Text, 3D Text | Text chú thích, 3D Text tạo hình chữ có mặt và độ dày. Đặt hướng chữ theo bề mặt lắp. | Entities#add_text và #add_3d_text. Text thường là chú thích; 3D Text tạo hình học trong context. |
+| Orbit, Pan, Zoom, Zoom Window, Zoom Extents, Previous View | Quay quan sát, dịch khung, phóng theo vùng, lấy toàn cảnh hoặc trở về góc nhìn trước. Dùng để kiểm tra nhiều phía. | View và Camera. Pan dời eye và target cùng vector; Orbit quay eye quanh mốc; Previous View chỉ đổi trạng thái camera. |
+| Position Camera, Walk, Look Around, Field of View | Đặt vị trí và chiều cao mắt, đi qua không gian, xoay nhìn tại chỗ hoặc chỉnh góc nhìn. | Camera có eye/target/up và fov; Walk tương tác còn xử lý điều hướng. Góc rộng có thể làm sai cảm nhận tỷ lệ khi đối chiếu hình. |
 
-## Vẽ đường, mặt và cung
+Nút Warehouse, chia sẻ hay quản lý ở cuối thanh dùng cho thư viện, tài khoản hoặc tiện ích. Dùng tooltip trên phiên bản đang chạy để nhận diện chính xác.
 
-| Nút | Cách thao tác | Cơ chế Ruby và cách trợ lý xử lý |
+## Phối hợp theo họ hình khối
+
+| Bài toán | Trình tự dựng | Kiểm tra |
 | --- | --- | --- |
-| Line | Chọn hai đầu; khóa hướng rồi gõ chiều dài. Khép một vòng phẳng để được mặt. | Entities#add_line hoặc add_face cho vòng kín có thứ tự. draw_geometry line nhận đúng hai điểm; face nhận các góc đi quanh biên. |
-| Freehand | Giữ chuột và vẽ nét liên tục, nhả để có một đường ghép. | Entities#add_curve nhận chuỗi điểm. draw_geometry freehand nhận mẫu đã đơn giản hóa; nên bỏ điểm trùng hoặc đoạn quá ngắn. |
-| Rectangle | Bấm hai góc đối; nhập hai kích thước trong Measurements. | Entities#add_face với bốn góc đồng phẳng. draw_geometry rectangle dùng bốn góc đã xác định theo thứ tự. |
-| Rotated Rectangle | Bấm hai góc tạo cạnh đầu rồi định hướng mặt phẳng và chiều rộng bằng góc thứ ba. | Dựng cạnh thứ hai vuông góc với cạnh đầu trong mặt phẳng đã chọn, tạo góc thứ tư bằng phép cộng vector. draw_geometry rotated_rectangle nhận cả bốn góc. |
-| Circle | Chọn mặt phẳng, tâm và bán kính; nhập số đoạn nếu cần. | Entities#add_circle tạo ArcCurve gồm các cạnh; draw_geometry circle nhận tâm, điểm bán kính, điểm xác định mặt phẳng. filled tạo mặt để Push/Pull. |
-| Polygon | Chọn số cạnh, tâm và một đỉnh; phân biệt bán kính tới đỉnh với bán kính nội tiếp. | Entities#add_ngon hoặc quay vector bán kính đều quanh pháp tuyến. draw_geometry polygon giữ hướng của đỉnh đầu đã nhập. |
-| Arc | Chọn tâm, điểm đầu và góc quét trong mặt phẳng. | Entities#add_arc nhận tâm, trục hướng điểm đầu, pháp tuyến, bán kính, góc đầu/cuối, số đoạn. draw_geometry arc dùng góc quét dương theo pháp tuyến xác định bởi ba điểm. |
-| 2 Point Arc | Chọn hai đầu dây cung rồi đặt độ võng qua một điểm trên cung. Có thể nhập bán kính hoặc số đoạn. | Từ hai đầu và điểm độ võng suy ra đường tròn qua ba điểm. draw_geometry two_point_arc nhận theo thứ tự đầu, điểm trên cung, cuối; tránh ba điểm thẳng hàng. |
-| 3 Point Arc | Chọn lần lượt đầu, điểm trung gian trên cung và cuối. | draw_geometry three_point_arc tìm tâm ngoại tiếp và hướng quét đi qua điểm trung gian, kể cả cung lớn hơn 180 độ. |
-| Pie | Dùng tâm, điểm bán kính và góc như Arc; kết quả kín tới tâm. | draw_geometry pie thêm hai bán kính vào cung rồi add_face. Góc quét phải nằm giữa 0 và 360 độ. |
+| Tường, sàn, bậc thẳng, vật thể có tiết diện đều | Guide → Line/Rectangle/Arc tạo mặt → Offset nếu có vòng rỗng → Push/Pull → Group. | Chiều sâu đùn, bề dày tại các góc, đáy/đỉnh và hướng mặt. |
+| Cửa, hốc, lỗ xuyên | Tạo tường kín → đặt kích thước và cao độ ô → Push/Pull tới mặt sau hoặc dùng cutter và Trim → dựng riêng khung/cánh/kính trong ô. | Chiều sâu lỗ, bề dày còn lại, khoảng hở, ô xuyên thật và các vật thể lân cận. |
+| Len, phào, lan can, ống cong | Vẽ tuyến bằng Line/Arc → xử lý chỗ nối và bán kính → dựng tiết diện → Follow Me → làm mềm cạnh trung gian. | Tiết diện không xoắn bất ngờ, đoạn nối kín; bán kính tuyến đủ lớn so với tiết diện. |
+| Cột tròn, chậu, tay nắm tròn xoay | Vẽ nửa tiết diện dọc từ trục → Circle tâm trên trục làm đường dẫn → Follow Me → kiểm tra vòng nối. | Biên tiết diện không vượt trục, độ mịn, không bị hở tại tâm. |
+| Khối vát, tháp thu nhỏ, khối đổi tiết diện | Tạo các vòng tại cao độ cần thiết bằng Move/Rotate/Scale → đặt cùng số đỉnh và cùng thứ tự → nối cặp đỉnh bằng Line → chia tam giác những dải không đồng phẳng → đóng hai đầu. | Đỉnh đối ứng không xoắn chéo, chiều mặt nhất quán, mép nối kín. |
+| Mặt tự do, địa hình | Đặt đường kiểm soát hoặc tiết diện theo lớp → lấy mẫu dày hơn nơi cong nhiều → nối thành lưới tam giác → làm mềm cạnh nội bộ. Với đường đồng mức dùng Sandbox From Contours nếu phù hợp. | Chọn mật độ theo dung sai; đo độ lệch tại các tiết diện; tránh tam giác dài mảnh và giao xuyên. |
+| Chi tiết lặp hoặc đối xứng | Make Component → Move copy theo hàng → Rotate copy quanh tâm hoặc Flip copy qua mặt phẳng. | Chọn pivot theo trục lắp, phân biệt số bản sao với số khoảng chia; làm riêng biến thể trước khi sửa. |
+| Mái dốc | Vẽ mặt ngang theo đỉnh tường, dựng độ đua từ đường bao → xác định các mặt có dốc theo hướng pháp tuyến eave → giao mặt để ra sống, hông và khe → thêm diềm. Luồng mái hông của Nếp Nhà dùng nguyên lý này cho các đường bao được hỗ trợ. | Cao độ gặp tường, chiều dốc theo phương vuông góc mép, liên tục ở giao tuyến và thoát nước tại góc lõm. |
 
-## Chỉnh sửa hình học
+Với hình phức tạp, bắt đầu từ hai hoặc ba tiết diện kiểm soát, dựng một phần nhỏ rồi đo lại trước khi nhân hoặc nối toàn bộ. Tam giác hóa cho phép xấp xỉ bề mặt không đồng phẳng trong mô hình cạnh/mặt của SketchUp; ghi rõ dung sai nếu công việc cần chế tạo hoặc bóc khối lượng.
 
-| Nút | Cách thao tác | Cơ chế Ruby và cách trợ lý xử lý |
-| --- | --- | --- |
-| Move | Chọn vật, bắt mốc gốc, khóa hướng và nhập độ dời. Ctrl chuyển chế độ sao chép, dùng mảng khi cần. | Geom::Transformation.translation rồi Entities#transform_entities. edit_selection move_mm dịch đúng group/component đã chọn. Sao chép/mảng tương tác dùng Move. |
-| Push/Pull | Chọn mặt, kéo theo pháp tuyến, nhập số đo. Ctrl giữ lại mặt nguồn trong chế độ sao chép. | Face#pushpull(dist, copy) trong edit_drawing. Dấu khoảng cách theo pháp tuyến. Dùng build_model để đùn nhiều khối từ mặt bằng và khoét tường bằng solid cutter đã có. |
-| Rotate | Đặt mặt phẳng thước, tâm, tia gốc và góc. | Geom::Transformation.rotation dùng pivot, trục và góc. edit_drawing rotate xoay vùng chọn; dùng Rotate tương tác để sao chép. |
-| Follow Me | Chọn đường dẫn liền mạch rồi bấm mặt tiết diện đặt tại đầu đường; tiết diện nên vuông góc với tiếp tuyến đầu. | Face#followme trên dãy Edge đúng thứ tự trong cùng context. edit_drawing follow_me nhận một mặt và path_ids của tất cả cạnh đã chọn. Dùng làm chỉ, len hoặc ống; kiểm tra tự giao ở các góc gấp. |
-| Scale | Kéo tay nắm trục hoặc góc; khóa đồng tỷ lệ khi cần. | Geom::Transformation.scaling theo pivot và ba hệ số. edit_drawing scale dùng hệ trục model; dùng Scale gốc khi cần tay nắm theo trục cục bộ. |
-| Offset | Chọn mặt/vòng cạnh, kéo về trong hoặc ngoài rồi nhập khoảng cách. | API 2024 không có Face#offset. Có thể dịch từng đường cạnh trong mặt phẳng, giao các đường song song bằng Geom.intersect_line_line, xử lý góc lõm, các vòng lỗ và tự giao. Với đường bao tổng quát, mở offset để người dùng nhập khoảng cách; không thay bằng Scale. |
-| Flip | Chọn vật, chọn mặt phẳng phản chiếu; Ctrl tạo bản sao đối xứng. | edit_drawing flip lấy pivot và pháp tuyến X/Y/Z hệ model, dùng hệ số âm theo trục đó. Dùng Flip gốc khi muốn chọn mặt phẳng theo trục cục bộ hoặc sao chép. |
-
-## Đo, chú thích và trục
-
-| Nút | Cách thao tác | Cơ chế Ruby và cách trợ lý xử lý |
-| --- | --- | --- |
-| Tape Measure | Bắt hai mốc để đo. Khi tạo guide, bắt trên cạnh rồi kéo song song hoặc bắt điểm để định khoảng. | measure_drawing nhận hai điểm; draw_geometry guide_line/guide_point dùng ConstructionLine/Point. Đổi tỷ lệ toàn model là thao tác riêng của Tape Measure, chỉ làm khi được yêu cầu. |
-| Dimensions | Bắt hai đầu cạnh rồi đặt đường kích thước cách vật. | Entities#add_dimension_linear. draw_geometry dimension nhận hai điểm tĩnh và vector offset. Muốn kích thước cập nhật theo entity dùng overload tham chiếu entity/InstancePath. |
-| Protractor | Chọn mặt phẳng, đỉnh, tia chuẩn rồi góc; có thể đặt guide. | Vector3d#angle_between ở measure_drawing. draw_geometry angle_guide quay tia bằng Transformation.rotation rồi tạo đường chuẩn. |
-| Text | Đặt chú thích vào điểm hoặc lên đối tượng. | Entities#add_text tạo nhãn, có overload gắn đường dẫn/tham chiếu. draw_geometry text dùng điểm tĩnh. |
-| Axes | Bấm gốc, hướng đỏ và phía xanh lá; trục xanh dương xác định theo quy tắc bàn tay phải. | Model#axes và Axes#set. set_drawing_axes dựng bộ trục vuông góc từ ba điểm. Đổi trục thao tác, hình học giữ vị trí. |
-| 3D Text | Nhập chữ, font, chiều cao; chọn tạo mặt và độ đùn, rồi đặt chữ. | Entities#add_3d_text tạo cạnh/mặt; draw_geometry text_3d sinh chữ Arial trong group, cao và sâu theo mm, mặt phẳng XY. |
-
-## Camera
-
-| Nút | Cách thao tác và cơ chế |
-| --- | --- |
-| Orbit | Quay góc nhìn quanh đối tượng bằng kéo chuột hoặc nút giữa. activate_native_tool orbit. Với góc xác định, drawing_camera position đặt eye và target. |
-| Pan | Dịch ngang/dọc ảnh bằng Pan hoặc Shift + nút giữa. Với dịch chuyển định lượng, dời eye và target cùng vector trong mặt phẳng camera. Dùng nút Pan cho thao tác kéo. |
-| Zoom | Cuộn hoặc kéo. drawing_camera zoom dùng View#zoom với hệ số từ 1 đến 10; mở zoom để kéo tùy ý. |
-| Zoom Window | Kéo khung vùng cần phóng; activate_native_tool zoom_window. View#zoom(selection) dùng khi mục tiêu là hình học đã chọn. |
-| Zoom Extents | drawing_camera extents gọi View#zoom_extents để vừa model; selection chỉ vừa vùng chọn. |
-| Previous View | Quay lại góc nhìn trước, không Undo hình học; activate_native_tool previous_view. |
-| Position Camera | Lấy điểm đặt và chiều cao mắt, chỉ hướng nhìn. drawing_camera position nhận eye, target, up và FOV tùy chọn. |
-| Walk | Di chuyển qua model với điều khiển người đi bộ; activate_native_tool walk. Camera#set đơn lẻ không mô phỏng va chạm. |
-| Look Around | Giữ vị trí mắt và đổi hướng nhìn; activate_native_tool look_around hoặc đặt lại target với eye cũ qua drawing_camera position. |
-| Field of View | Đổi độ rộng góc nhìn ở chế độ phối cảnh; activate_native_tool field_of_view hoặc đặt fov_deg khi tạo camera với cùng eye và target. |
-
-## Nút thư viện, chia sẻ và quản lý
-
-- 3D Warehouse tìm và tải model; Extension Warehouse tìm tiện ích; Extension Manager quản lý RBZ. Các hộp thoại, đăng nhập và cài đặt thuộc giao diện SketchUp. Khi người dùng đã có .skp, API Definitions#load và Entities#add_instance có thể nhập và đặt model trong luồng tích hợp riêng.
-- Với cụm biểu tượng chồng lớp ở cuối ảnh, dùng tooltip hoặc View > Toolbars để xác nhận tên của bản cài. Đối chiếu nhóm Warehouse/Trimble Connect nếu có các lệnh chia sẻ model, mở/lưu từ đám mây hoặc quản lý tiện ích. Đây là thao tác tài khoản/tệp; hướng dẫn người dùng thực hiện từ nút hoặc menu tương ứng.
-- Nguồn: [Quick Reference Card 2024 Windows](https://download.sketchup.com/QRC2024/QRC2024-SU-Windows-en.pdf), [SketchUp Toolbars](https://help.sketchup.com/en/sketchup/toolbars), [Drawing Arcs](https://help.sketchup.com/en/sketchup/drawing-arcs), [Ruby Entities](https://ruby.sketchup.com/Sketchup/Entities.html), [Ruby Face](https://ruby.sketchup.com/Sketchup/Face.html), [Ruby Selection](https://ruby.sketchup.com/Sketchup/Selection.html), [Ruby Axes](https://ruby.sketchup.com/Sketchup/Axes.html), [Ruby View](https://ruby.sketchup.com/Sketchup/View.html), [Ruby Camera](https://ruby.sketchup.com/Sketchup/Camera.html), [Ruby send_action](https://ruby.sketchup.com/Sketchup.html#send_action-class_method).
+[Tài liệu Large Tool Set 2024 cho Windows](https://download.sketchup.com/QRC2024/QRC2024-SU-Windows-en.pdf) · [Ruby Entities](https://ruby.sketchup.com/Sketchup/Entities.html) · [Ruby Face](https://ruby.sketchup.com/Sketchup/Face.html) · [Ruby Transformation](https://ruby.sketchup.com/Geom/Transformation.html) · [Ruby Camera](https://ruby.sketchup.com/Sketchup/Camera.html)
