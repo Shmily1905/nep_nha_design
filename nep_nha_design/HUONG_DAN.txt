@@ -1,11 +1,14 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.9.1
+Phiên bản 1.9.2
 
 Mặt bằng PDF và cửa
-- Bấm “Chọn mặt bằng / PDF”. Chọn trang xem trước để nhận diện đường bao hoặc
-  dựng concept. Để phân tích hoặc dựng nhiều tầng qua chat, nhập danh sách trang,
-  ví dụ 2, 4-6 (tối đa 10 trang/lượt). PDF tối đa 100 MB. Ghi rõ cao độ tầng
-  hoặc mốc căn chỉnh nếu bản vẽ thiếu.
+- Đính kèm PDF mặt bằng và ảnh tham chiếu. Trợ lý tự dựng tường bao, khoét ô,
+  lắp cửa và dựng mái hông. PDF tối đa 100 MB. Mặc định đọc cả PDF đến 10 trang.
+  Với PDF dài hơn, chọn các trang cần dựng trong mục Trang PDF rồi gửi lại.
+- Nếu thiếu kích thước, trả lời ngay trong chat. Với mặt bằng dạng ảnh, nhắn
+  một kích thước thật kèm hai đầu mốc nếu bản vẽ chưa ghi rõ.
+- Mái tự động lấy mặt ngang đỉnh tường bao, dốc 30°, đua 500 mm, diềm 150 mm.
+  Hỗ trợ đường bao lồi và chữ L vuông góc. Cửa được dựng dạng cánh/kính đơn giản.
 - Khi dựng chi tiết, trợ lý tạo tường rồi dùng Solid Tools đục ô cửa. Cửa đi cao
   2200, 2400, 2600, 2700 hoặc 2800 mm. Ba mức cao từ 2600 mm có kính cố định
   trên cao độ 2400 mm tính từ chân tường. Thao tác đục cần SketchUp hỗ trợ Solid Tools.
@@ -26,21 +29,6 @@ Render
 - Thêm ảnh tham chiếu, nhập ghi chú rồi bấm “Phân tích ảnh và viết prompt”.
 - Sao chép prompt và mở ChatGPT Images hoặc Gemini / Nano Banana. Đăng nhập
   bằng tài khoản đang dùng, đính kèm PNG đã xuất trước ảnh tham chiếu và dán prompt.
-
-Concept ngoại thất
-- Chọn ảnh mặt bằng, nhập cạnh dài nhất của tường ngoài và chiều cao tầng (mm).
-  Bấm “Tự nhận diện và dựng 3D” để dựng khối thân nhà và mái hông tự động.
-  Mái mặc định dốc 30°, đua 500 mm, diềm 150 mm. Hỗ trợ đường bao lồi và chữ L
-  vuông góc. Với đường bao lõm khác, kết quả gồm khối thân nhà.
-- Chọn ảnh mặt bằng rồi mở “Concept ngoại thất”. Bấm “Nhận diện đường bao”
-  hoặc tự bấm các góc ngoài theo thứ tự. Kéo đỉnh để hiệu chỉnh.
-- Chọn cạnh mặt tiền trong danh sách, cạnh được đánh dấu màu cam.
-- Nhập chiều ngang bao theo trục ngang của ảnh (mm). Nếu chưa có số đo,
-  có thể chọn dùng ngang bao ước lượng 12.000 mm.
-- Thêm ảnh tham chiếu và chọn vai trò cạnh mỗi ảnh: mái, mặt đứng, vật
-  liệu, chi tiết hoặc phong cách chung. Nhập yêu cầu bổ sung nếu cần.
-- Bấm “Dựng concept theo đường bao”. Nhận diện chỉ tạo bản xem trước;
-  nút dựng mới gửi yêu cầu tạo nhóm trong SketchUp.
 
 Mái hông với 1001bit Pro
 - Trong chat, yêu cầu chuẩn bị mặt mái hông và cung cấp đường bao ngoài

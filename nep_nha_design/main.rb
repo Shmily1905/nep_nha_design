@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.9.1'
+    VERSION = '1.9.2'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -197,9 +197,6 @@ module NepNhaDesign
         # Keep plan and reference picking on separate callback names. This
         # avoids role arguments being misrouted by SketchUp's HtmlDialog.
         @chat_dialog.add_action_callback('nep_nha_pick_plan') { |_context| pick_attachment('plan') }
-        @chat_dialog.add_action_callback('nep_nha_pdf_preview') do |_context, path, page, token|
-          run_panel_task('pdfPreview', { action: 'pdf_preview', pdf_path: path, pdf_page: page.to_i }, token)
-        end
         @chat_dialog.add_action_callback('nep_nha_render_watch') do |_context, enabled|
           render_watch(enabled == true)
         end
@@ -331,20 +328,6 @@ module NepNhaDesign
 
         data = JSON.generate({ role: role, path: path, name: File.basename(path) })
         @chat_dialog.execute_script("window.NepNhaChat.attach(#{data})")
-        show_plan_preview(path) if is_plan
-      end
-
-      def show_plan_preview(path)
-        mime = { '.png' => 'png', '.jpg' => 'jpeg', '.jpeg' => 'jpeg', '.webp' => 'webp' }[File.extname(path).downcase]
-        return unless mime
-
-        bytes = File.binread(path, 10 * 1024 * 1024 + 1)
-        raise ArgumentError, 'Ảnh mặt bằng vượt 10 MB.' if bytes.bytesize > 10 * 1024 * 1024
-
-        data = { path: path, src: "data:image/#{mime};base64,#{Base64.strict_encode64(bytes)}" }
-        @chat_dialog.execute_script("window.NepNhaChat.planPreview(#{JSON.generate(data)})")
-      rescue StandardError => e
-        @chat_dialog.execute_script("window.NepNhaChat.previewError(#{JSON.generate(e.message)})")
       end
 
       def receive_chat(raw)
@@ -378,14 +361,12 @@ module NepNhaDesign
           payload[:render_crop] = render_crop_request(request['render_ratio'])
           payload[:prompt] = "#{prompt}\n#{@render_source[:legend]}"
         end
-        payload[:concept] = request['concept'] if request.key?('concept')
-        payload[:action] = 'trace_plan' if request['trace_plan'] == true
         model = Sketchup.active_model
-        if request.key?('auto_concept')
+        if request['auto_exterior'] == true
           raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
 
-          payload[:action] = 'auto_concept'
-          payload[:dimensions] = request['auto_concept']
+          payload[:action] = 'auto_exterior'
+          payload[:thread_id] = nil
         end
         dialog = @chat_dialog
         @chat_busy = true
@@ -401,28 +382,24 @@ module NepNhaDesign
           @chat_busy = false
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
-          geometry = result.delete('concept_geometry')
-          if geometry
+          build = result.delete('exterior_build')
+          if build
             begin
-              raise ArgumentError, 'Model đã đổi trong lúc nhận diện. Hãy bấm dựng lại.' unless Sketchup.active_model == model
+              unless Sketchup.active_model == model && !model.active_path
+                raise ArgumentError, 'Model hoặc vùng chỉnh sửa đã đổi. Hãy gửi lại yêu cầu.'
+              end
 
-              bounds = Bridge.build_auto_concept(model, geometry)
-              text = "Đã dựng khối thân nhà #{bounds[:width]} × #{bounds[:depth]} mm, cao tầng #{geometry['height_mm']} mm. " \
-                     "Cạnh dài nhất lấy theo #{geometry['length_mm']} mm."
-              result['text'] = case bounds[:roof]
-                               when :built
-                                 "#{text} Đã dựng mái hông dốc #{geometry['pitch']}°, đua #{geometry['overhang_mm']} mm."
-                               when :unsupported
-                                 "#{text} Đường bao này nằm ngoài phạm vi dựng mái hông tự động."
-                               else
-                                 "#{text} SketchUp gặp lỗi khi tạo các mặt mái. Khối thân nhà đã được giữ lại."
-                               end
+              Bridge.build_model(model, build)
+              roof = build.fetch('hip_roof')
+              summary = "Đã dựng #{build['solids'].length} đoạn tường bao, lắp #{build['openings'].length} ô cửa và dựng mái hông dốc #{roof['pitch']}°, đua #{roof['overhang_mm']} mm."
+              result['text'] = [summary, result['text']].reject(&:empty?).join("\n")
             rescue StandardError => e
               result['ok'] = false
-              result['error'] = "Không dựng được concept: #{e.message}"
+              result['error'] = "Không dựng được ngoại thất: #{e.message}"
             end
           end
           @thread_id = result['thread_id'] if result['ok'] && result['thread_id'] && !payload[:action]
+          result['exterior'] = true if payload[:action] == 'auto_exterior'
           result['draft_skill'] = draft if result['ok']
           send_to_chat(result)
         end

@@ -77,18 +77,10 @@
     details { margin-top:9px; }
     details > label { display:block; margin-top:8px; }
     details > label > input { width:100%; margin-top:4px; padding:7px; border:1px solid var(--line); border-radius:7px; }
-    #conceptPanel { max-height: 37vh; overflow:auto; }
-    #planPreview { position:relative; max-width:100%; }
-    #planImage { display:block; width:100%; }
-    #planOverlay { position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:crosshair; }
-    #planOverlay polygon { fill:#2b825750; stroke:#38b77d; stroke-width:2px; vector-effect:non-scaling-stroke; }
-    #planOverlay line { stroke:#ffad33; stroke-width:4px; vector-effect:non-scaling-stroke; }
-    #planOverlay circle { fill:#fff; stroke:#235d45; stroke-width:2px; vector-effect:non-scaling-stroke; cursor:grab; }
-    #conceptPanel input[type=number] { width:8em; }
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.9.1">v1.9.1</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.9.2">v1.9.2</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -115,31 +107,10 @@
       <p id="skillStatus" role="status"></p>
     </section>
     <div id="attachments" aria-live="polite"></div>
-    <div id="pdfPageRow" hidden>
-      <label>Trang xem trước <input id="pdfPage" type="number" min="1" value="1"></label>
-      <button type="button" class="link" id="previewPdf">Xem trang</button>
-      <label>Các trang gửi cho trợ lý <input id="pdfPages" placeholder="Ví dụ 2, 4-6"></label>
+    <details id="pdfPageRow" hidden>
+      <summary>Trang PDF</summary>
+      <label>Trang mặt bằng cần dựng <input id="pdfPages" placeholder="Mặc định đọc cả PDF · ví dụ 2, 4-6"></label>
       <p class="hint" id="pdfStatus" role="status"></p>
-    </div>
-    <details id="conceptPanel" hidden>
-      <summary>Concept ngoại thất</summary>
-      <label>Cạnh dài nhất của tường ngoài (mm) <input id="autoLength" type="number" min="500" max="100000" step="1" placeholder="16600"></label>
-      <label>Chiều cao tầng (mm) <input id="autoHeight" type="number" min="500" max="30000" step="1" placeholder="3900"></label>
-      <button type="button" class="link" id="autoConcept">Tự nhận diện và dựng 3D</button>
-      <div class="auth-actions">
-        <button type="button" class="link" id="tracePlan">Nhận diện đường bao</button>
-        <button type="button" class="link" id="undoVertex">Bỏ đỉnh cuối</button>
-        <button type="button" class="link" id="clearOutline">Vẽ lại</button>
-      </div>
-      <p class="hint" id="outlineStatus" role="status">Bấm các góc tường ngoài theo thứ tự hoặc dùng nhận diện. Kéo đỉnh để chỉnh.</p>
-      <div id="planPreview">
-        <img id="planImage" alt="Ảnh mặt bằng">
-        <svg id="planOverlay" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Đường bao tường ngoài"></svg>
-      </div>
-      <label>Ngang bao (mm) <input id="conceptWidth" type="number" min="500" max="100000" step="1" placeholder="Ví dụ 12000"></label>
-      <label><input id="estimateScale" type="checkbox"> Dùng ngang bao ước lượng 12.000 mm khi để trống</label>
-      <label>Mặt tiền <select id="frontEdge" aria-label="Cạnh mặt tiền"></select></label>
-      <button type="button" class="link" id="buildConcept">Dựng concept theo đường bao</button>
     </details>
     <details id="renderPanel">
       <summary>Render</summary>
@@ -295,142 +266,24 @@
       }
 
       let attachments = [];
-      const conceptPanel = document.getElementById('conceptPanel');
-      const planImage = document.getElementById('planImage');
-      const overlay = document.getElementById('planOverlay');
-      const outlineStatus = document.getElementById('outlineStatus');
-      const frontEdge = document.getElementById('frontEdge');
-      const conceptWidth = document.getElementById('conceptWidth');
-      const estimateScale = document.getElementById('estimateScale');
       const referencePurposes = [
         ['style', 'Phong cách chung'], ['roof', 'Mái'], ['facade', 'Mặt đứng'],
         ['material', 'Vật liệu'], ['detail', 'Chi tiết']
       ];
-      let outline = [];
-      let movingVertex = null;
-
-      function drawOutline() {
-        overlay.replaceChildren();
-        const make = (tag, attrs) => {
-          const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-          for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-          overlay.appendChild(node);
-          return node;
-        };
-        if (outline.length) make('polygon', {points: outline.map(point => point.join(',')).join(' ')});
-        const edge = Number(frontEdge.value);
-        if (frontEdge.value !== '' && outline.length >= 3 && outline[edge]) {
-          const [x1, y1] = outline[edge];
-          const [x2, y2] = outline[(edge + 1) % outline.length];
-          make('line', {x1, y1, x2, y2});
-        }
-        outline.forEach(([cx, cy], index) => {
-          make('circle', {cx, cy, r:0.013, 'data-vertex':index});
-        });
-      }
-
-      function updateOutline() {
-        const previous = frontEdge.value;
-        frontEdge.replaceChildren(new Option('Chọn cạnh', ''));
-        if (outline.length >= 3) outline.forEach((_, i) => {
-          frontEdge.add(new Option(`Đỉnh ${i + 1} → ${(i + 1) % outline.length + 1}`, String(i)));
-        });
-        if (outline.length >= 3 && previous !== '' && Number(previous) < outline.length) frontEdge.value = previous;
-        drawOutline();
-      }
-
-      function resetConcept() {
-        outline = [];
-        frontEdge.value = '';
-        conceptWidth.value = '';
-        document.getElementById('autoLength').value = '';
-        document.getElementById('autoHeight').value = '';
-        estimateScale.checked = false;
-        planImage.removeAttribute('src');
-        conceptPanel.hidden = true;
-        conceptPanel.open = false;
-        outlineStatus.textContent = 'Bấm các góc tường ngoài theo thứ tự hoặc dùng nhận diện. Kéo đỉnh để chỉnh.';
-        updateOutline();
-      }
-
-      function planPoint(event) {
-        const rect = overlay.getBoundingClientRect();
-        const clamp = number => Math.max(0, Math.min(1, number));
-        return [clamp((event.clientX - rect.left) / rect.width), clamp((event.clientY - rect.top) / rect.height)];
-      }
-
-      overlay.addEventListener('pointerdown', event => {
-        if (busy || !planImage.naturalWidth || event.button !== 0) return;
-        const index = event.target.getAttribute('data-vertex');
-        if (index !== null) {
-          movingVertex = Number(index);
-          overlay.setPointerCapture(event.pointerId);
-        } else if (outline.length < 32) {
-          outline.push(planPoint(event));
-          updateOutline();
-        }
-      });
-      overlay.addEventListener('pointermove', event => {
-        if (movingVertex === null || busy) return;
-        outline[movingVertex] = planPoint(event);
-        drawOutline();
-      });
-      overlay.addEventListener('lostpointercapture', () => { movingVertex = null; });
-      frontEdge.onchange = drawOutline;
-      document.getElementById('undoVertex').onclick = () => {
-        if (!busy) { outline.pop(); updateOutline(); }
-      };
-      document.getElementById('clearOutline').onclick = () => {
-        if (!busy) { outline = []; updateOutline(); }
-      };
-      document.getElementById('tracePlan').onclick = () => {
-        if (planImage.naturalWidth) submit({trace_plan:true});
-      };
-      document.getElementById('autoConcept').onclick = () => {
-        const length = document.getElementById('autoLength');
-        const height = document.getElementById('autoHeight');
-        for (const field of [length, height]) {
-          if (!field.value || !field.checkValidity()) {
-            outlineStatus.textContent = 'Nhập cạnh dài nhất và chiều cao tầng theo milimet, trong khoảng cho phép.';
-            field.focus();
-            return;
-          }
-        }
-        submit({auto_concept:{length_mm:length.valueAsNumber, height_mm:height.valueAsNumber}});
-      };
-      document.getElementById('buildConcept').onclick = () => {
-        if (busy) return;
-        if (outline.length < 3 || !planImage.naturalWidth || frontEdge.value === '') {
-          outlineStatus.textContent = 'Cần ít nhất ba đỉnh và một cạnh mặt tiền.';
-          return;
-        }
-        const estimated = conceptWidth.value === '' && estimateScale.checked;
-        const width = estimated ? 12000 : Number(conceptWidth.value);
-        if (width < 500 || width > 100000) {
-          outlineStatus.textContent = 'Nhập chiều ngang bao từ 500 đến 100.000 mm hoặc chọn ước lượng.';
-          return;
-        }
-        submit({concept:{outline, width_mm:width, estimated, front_edge:Number(frontEdge.value),
-          aspect:planImage.naturalWidth / planImage.naturalHeight}});
-      };
-      const pdfPage = document.getElementById('pdfPage');
       const pdfPages = document.getElementById('pdfPages');
       const pdfStatus = document.getElementById('pdfStatus');
-      let previewToken = 0;
-      function previewPdf() {
-        const plan = attachments.find(file => file.role === 'plan' && /\.pdf$/i.test(file.name));
-        if (!plan) return;
-        ++previewToken;
-        resetConcept();
-        if (!pdfPage.value || !pdfPage.checkValidity()) {
-          pdfStatus.textContent = 'Nhập số trang nguyên dương.';
-          return;
-        }
-        pdfStatus.textContent = 'Đang mở trang PDF…';
-        window.sketchup.nep_nha_pdf_preview(plan.path, pdfPage.value, previewToken);
+      let autoTimer;
+      let exteriorPending = false;
+      let exteriorSent = false;
+      let exteriorNotes = [];
+      function scheduleExterior() {
+        clearTimeout(autoTimer);
+        if (busy || !authReady || exteriorSent ||
+            !attachments.some(file => file.role === 'plan' && /\.pdf$/i.test(file.name)) ||
+            !attachments.some(file => file.role === 'reference')) return;
+        autoTimer = setTimeout(() => submit({auto_exterior:true}), 850);
       }
-      pdfPage.onchange = previewPdf;
-      document.getElementById('previewPdf').onclick = previewPdf;
+
       function selectedPages() {
         const pages = new Set();
         if (!pdfPages.value.trim() || document.getElementById('pdfPageRow').hidden) return [];
@@ -517,8 +370,9 @@
           button.addEventListener('click', () => {
             if (busy) return;
             attachments.splice(index, 1);
-            if (file.role === 'plan') { previewToken++; resetConcept(); }
+            if (file.role === 'plan') { exteriorPending = false; exteriorSent = false; exteriorNotes = []; }
             renderAttachments();
+            scheduleExterior();
           });
           if (file.role === 'reference') {
             const select = document.createElement('select');
@@ -571,7 +425,7 @@
       document.getElementById('draftSkill').onclick = () => {
         if (busy || !authReady || !review.hidden) return;
         skillMenu.open = false;
-        busy = true; send.disabled = model.disabled = pdfPage.disabled = true;
+        busy = true; send.disabled = model.disabled = pdfPages.disabled = true;
         renderControls();
         const wait = add('Đang soạn bản nháp skill…', 'assistant thinking');
         wait.id = 'waiting';
@@ -587,28 +441,37 @@
       document.getElementById('cancelSkill').onclick = () => { review.hidden = true; };
 
       function submit(options = {}) {
-        const tracing = options.trace_plan === true;
-        const automatic = options.auto_concept;
+        const notes = prompt.value.trim();
+        const hasPlan = attachments.some(file => file.role === 'plan');
+        const exterior = options.auto_exterior === true || (!options.render && hasPlan &&
+          (exteriorPending || (!exteriorSent && (attachments.some(file => file.role === 'reference') ||
+            /dựng|kích thước|chiều (?:rộng|dài)|\d\s*(?:mm|cm|m)\b/i.test(notes)))));
         const text = options.render ? (document.getElementById('renderNotes').value.trim() || 'Phân tích và viết prompt render.') :
-          automatic ? `Dựng 3D tự động · cạnh dài nhất ${automatic.length_mm} mm · cao tầng ${automatic.height_mm} mm` :
-          tracing ? 'Nhận diện đường bao tường ngoài' :
-          (prompt.value.trim() || (options.concept ? 'Dựng concept ngoại thất theo đường bao đã duyệt và ảnh tham chiếu.' : ''));
+          (notes || (exterior ? 'Dựng tường bao, cửa và mái hông theo mặt bằng.' : ''));
         if (!text || busy) return;
         if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
         let pdf_pages;
-        try { pdf_pages = tracing || automatic || options.concept || options.render ? [] : selectedPages(); }
-        catch (error) { pdfStatus.textContent = error.message; return; }
-        const files = options.render ? attachments.filter(file => file.role === 'reference') :
-          tracing || automatic ? attachments.filter(file => file.role === 'plan') : attachments;
+        try { pdf_pages = options.render ? [] : selectedPages(); }
+        catch (error) {
+          pdfStatus.textContent = error.message;
+          document.getElementById('pdfPageRow').open = true;
+          return;
+        }
+        clearTimeout(autoTimer);
+        if (exterior) {
+          exteriorSent = true;
+          exteriorPending = true;
+          if (notes && exteriorNotes.at(-1) !== notes) exteriorNotes.push(notes);
+        }
+        const files = options.render ? attachments.filter(file => file.role === 'reference') : attachments;
         const images = files.map(({role, path, purpose}) => ({role, path, purpose}));
         const names = files.map(file => file.name);
         add([text, ...names].join('\n'), 'user');
-        if (!tracing && !automatic && !options.render) prompt.value = '';
-        busy = true; send.disabled = model.disabled = pdfPage.disabled = true;
+        if (!options.render) prompt.value = '';
+        busy = true; send.disabled = model.disabled = pdfPages.disabled = true;
         renderControls();
-        const wait = add(automatic ? 'Đang nhận diện tường ngoài và dựng khối 3D…' : 'Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
-        const pdf_page = Number(pdfPage.value);
-        window.sketchup.nep_nha_send(JSON.stringify({prompt:text, model:model.value, fast:fast.checked, images, pdf_page, pdf_pages, ...options}));
+        const wait = add(exterior ? 'Đang đọc mặt bằng và dựng tường bao, cửa, mái…' : 'Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
+        window.sketchup.nep_nha_send(JSON.stringify({prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text, model:model.value, fast:fast.checked, images, pdf_pages, ...options, auto_exterior: exterior}));
       }
 
       window.NepNhaChat = {
@@ -626,24 +489,16 @@
         },
         attach(file) {
           if (file.role === 'plan') {
-            resetConcept();
+            exteriorPending = exteriorSent = false;
+            exteriorNotes = [];
             attachments = attachments.filter(item => item.role !== 'plan');
-            ++previewToken;
-            pdfPage.value = '1';
             pdfPages.value = '';
             pdfStatus.textContent = '';
           }
           if (attachments.some(item => item.path === file.path && item.role === file.role)) return;
           attachments.push(file);
           renderAttachments();
-          if (file.role === 'plan' && /\.pdf$/i.test(file.name)) previewPdf();
-        },
-        pdfPreview(result, token) {
-          if (token !== previewToken) return;
-          if (!result.ok) { pdfStatus.textContent = result.error; return; }
-          const plan = attachments.find(file => file.role === 'plan');
-          if (plan) this.planPreview({path:plan.path, src:result.src});
-          pdfStatus.textContent = `Đang xem trang ${pdfPage.value}. Concept áp dụng cho trang đang xem.`;
+          scheduleExterior();
         },
         renderState(result) {
           renderPending = false;
@@ -676,13 +531,6 @@
           renderStatus.textContent = result.error || `Đã lưu ${result.ratio} · ${result.filename}`;
           renderControls();
         },
-        planPreview({path, src}) {
-          if (!attachments.some(file => file.role === 'plan' && file.path === path)) return;
-          planImage.src = src;
-          conceptPanel.hidden = false;
-          conceptPanel.open = true;
-        },
-        previewError(message) { add(message, 'error'); },
         repository(value) {
           if (value && document.activeElement !== repository) {
             repository.value = value;
@@ -693,26 +541,19 @@
         receive(result) {
           const wait = document.getElementById('waiting'); if (wait) wait.remove();
           if (result.offline_skills) add('Drive đang ngoại tuyến. Đang dùng bản skill cục bộ.', 'assistant');
-          busy = false; send.disabled = !authReady; model.disabled = pdfPage.disabled = false;
+          busy = false; send.disabled = !authReady; model.disabled = pdfPages.disabled = false;
           renderControls();
+          if (result.exterior && result.ok) {
+            exteriorPending = !!result.needs_dimensions;
+            if (!exteriorPending) exteriorNotes = [];
+          }
           if (result.reset) {
             review.hidden = true;
             attachments = [];
-            ++previewToken;
-            resetConcept();
+            exteriorPending = exteriorSent = false;
+            exteriorNotes = [];
             renderAttachments();
             messages.replaceChildren(); add('Đã bắt đầu cuộc trò chuyện mới.', 'assistant');
-          } else if (result.ok && Array.isArray(result.outline)) {
-            outline = result.outline;
-            frontEdge.value = '';
-            updateOutline();
-            if (result.text) {
-              outlineStatus.textContent = 'Đường bao tường ngoài dùng để dựng 3D.';
-              add(result.text, 'assistant');
-              return;
-            }
-            outlineStatus.textContent = 'Kiểm tra đường bao, kéo đỉnh nếu cần và chọn cạnh mặt tiền.';
-            return;
           } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {
             openSkillReview(result.text);
             return;
@@ -730,6 +571,7 @@
             if (result.auth_required) this.auth({state:'signed_out', message:result.error});
           }
           prompt.focus();
+          scheduleExterior();
         },
         auth(result) {
           const state = result.state || 'error';
@@ -744,6 +586,7 @@
           login.hidden = state === 'missing' || state === 'ready';
           login.disabled = state === 'working'; install.disabled = state === 'working';
           send.disabled = busy || !authReady;
+          scheduleExterior();
         },
         models(result) {
           model.replaceChildren(new Option('Tự động', ''));

@@ -3,52 +3,7 @@
 module NepNhaDesign
   module Bridge
     class << self
-      def build_auto_concept(model, geometry)
-        raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
-
-        footprint = geometry.fetch('footprint_mm')
-        height = geometry.fetch('height_mm')
-        roof_faces = geometry.fetch('roof_faces_mm')
-        unless valid_footprint?(footprint) && height.is_a?(Numeric) && height.between?(500, 30_000)
-          raise ArgumentError, 'Đường bao hoặc chiều cao tầng không hợp lệ.'
-        end
-
-        with_operation(model) do
-          root = model.entities.add_group
-          root.name = 'Concept ngoại thất Nếp Nhà'
-          body = root.entities.add_group
-          body.name = 'Thân nhà'
-          palette = {}
-          body.material = solid_material(model, { 'hex_color' => '#E6DFD2', 'material_key' => 'Tường sơn' }, palette)
-          face = body.entities.add_face(footprint.map { |x, y| Geom::Point3d.new(x.mm, y.mm, 0) })
-          raise ArgumentError, 'SketchUp không tạo được mặt đường bao.' unless face
-
-          face.reverse! if face.normal.z < 0
-          face.pushpull(height.mm)
-          bounds = body.bounds
-          unless body.manifold? && bounds.min.z.to_mm.abs < 0.1 && (bounds.max.z.to_mm - height).abs < 0.1
-            raise ArgumentError, 'SketchUp không tạo được khối thân nhà đúng cao độ.'
-          end
-
-          roof_status = :unsupported
-          if roof_faces.any?
-            roof = root.entities.add_group
-            roof.name = 'Mái hông'
-            roof.material = solid_material(model, { 'hex_color' => '#A94F3D', 'material_key' => 'Mái ngói' }, palette)
-            begin
-              add_concept_roof(roof.entities, geometry)
-              roof_status = :built
-            rescue StandardError => e
-              roof.erase!
-              roof_status = :failed
-              warn "[Nếp Nhà Design] Concept roof: #{e.class}: #{e.message}"
-            end
-          end
-          { width: bounds.width.to_mm.round, depth: bounds.height.to_mm.round, roof: roof_status }
-        end
-      end
-
-      def add_concept_roof(entities, geometry)
+      def add_hip_roof(entities, geometry)
         geometry.fetch('roof_faces_mm').each do |polygon|
           surface = entities.add_face(polygon.map { |point| Geom::Point3d.new(point.map(&:mm)) })
           raise ArgumentError, 'SketchUp không tạo được mặt dốc của mái.' unless surface
@@ -189,11 +144,23 @@ module NepNhaDesign
             groups[index].material = solid_material(model, solid, palette)
           end
           openings.each do |opening|
-            next unless opening.fetch('kind', 'door') == 'door' && opening.fetch('height_mm') >= 2600
-
             wall = solids.fetch(opening.fetch('wall_index'))
+            kind = opening.fetch('kind', 'door')
+            if params['fit_openings'] == true
+              category = kind == 'door' ? 'door' : 'window'
+              parent = categories[category] ||= root.entities.add_group.tap { |item| item.name = labels.fetch(category) }
+              add_opening_panel(model, parent.entities, wall, opening, palette)
+            end
+            next unless kind == 'door' && opening.fetch('height_mm') >= 2600
+
             parent = categories['window'] ||= root.entities.add_group.tap { |item| item.name = labels.fetch('window') }
             add_opening_glass(model, parent.entities, wall, opening, palette)
+          end
+          if params['hip_roof']
+            roof = root.entities.add_group
+            roof.name = 'Mái hông'
+            roof.material = solid_material(model, { 'hex_color' => '#A94F3D', 'material_key' => 'Mái ngói' }, palette)
+            add_hip_roof(roof.entities, params['hip_roof'])
           end
           build_summary(root, id, scale, true)
         end
@@ -297,6 +264,28 @@ module NepNhaDesign
           model.selection.add(cut)
           { wall_id: cut.persistent_id, fixed_glass_id: glass&.persistent_id, height_mm: opening['height_mm'] }
         end
+      end
+
+      def add_opening_panel(model, entities, wall, opening, palette)
+        door = opening.fetch('kind', 'door') == 'door'
+        height = opening.fetch('height_mm')
+        height = 2400 if door && height >= 2600
+        # Inset the panel 3 mm at the jambs and leave a 3 mm clearance top and bottom.
+        a, b = opening.values_at('start_mm', 'end_mm')
+        width = Math.hypot(b[0] - a[0], b[1] - a[1])
+        gap = a.zip(b).map { |start, finish| (finish - start) * 3.0 / width }
+        inset = opening.merge('start_mm' => a.zip(gap).map(&:sum),
+                              'end_mm' => b.zip(gap).map { |value, delta| value - delta })
+        panel = {
+          'name' => door ? 'Cánh cửa đi' : 'Kính cửa sổ',
+          'footprint_mm' => opening_polygon(inset, door ? [40, opening.fetch('wall_thickness_mm')].min : 10),
+          'base_mm' => wall.fetch('base_mm') + opening.fetch('sill_mm', 0) + 3,
+          'height_mm' => height - 6,
+          'hex_color' => door ? '#8C6248' : '#77BDD6',
+          'opacity' => door ? 1.0 : 0.45,
+          'material_key' => door ? 'Gỗ cửa' : 'Kính cố định'
+        }
+        extrude_solid(entities, panel).material = solid_material(model, panel, palette)
       end
 
       def add_opening_glass(model, entities, wall, opening, palette)
