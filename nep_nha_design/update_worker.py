@@ -130,7 +130,7 @@ def update(request):
         return {"ok": True, "message": f"Bạn đang dùng bản mới nhất ({version})."}
     if request["action"] == "check_update":
         return {"ok": True, "available": True, "version": version, "message": f"Có bản {version}."}
-    if request.get("expected_version") != version:
+    if request["action"] == "download_update" and request.get("expected_version") != version:
         raise ValueError("Bản phát hành vừa thay đổi. Hãy kiểm tra lại.")
     asset_url = asset.get("url", "")
     data = fetch(asset_url, LIMIT, token, "application/octet-stream")
@@ -156,4 +156,4 @@ def update(request):
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
         path.unlink(missing_ok=True)
         raise ValueError("Không thể xác minh cấu trúc gói RBZ.") from exc
-    return {"ok": True, "path": str(path)}
+    return {"ok": True, "path": str(path), "version": version}

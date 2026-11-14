@@ -17,9 +17,13 @@ PACKAGE_FILES = [
     "github_credential.py",
     "hip_roof.py",
     "logo.png",
+    "Montserrat.ttf",
+    "Montserrat-OFL.txt",
     "main.rb",
     "mcp_server.py",
     "requirements.txt",
+    "render_prompt.txt",
+    "render_scene.rb",
     "su_mcp_bridge.rb",
     "update_worker.py",
 ]

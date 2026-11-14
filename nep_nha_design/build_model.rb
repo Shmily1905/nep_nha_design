@@ -17,7 +17,9 @@ module NepNhaDesign
           root = model.entities.add_group
           root.name = 'Concept ngoại thất Nếp Nhà'
           body = root.entities.add_group
-          body.name = 'Thân nhà — khối trắng'
+          body.name = 'Thân nhà'
+          palette = {}
+          body.material = solid_material(model, { 'hex_color' => '#E6DFD2', 'material_key' => 'Tường sơn' }, palette)
           face = body.entities.add_face(footprint.map { |x, y| Geom::Point3d.new(x.mm, y.mm, 0) })
           raise ArgumentError, 'SketchUp không tạo được mặt đường bao.' unless face
 
@@ -32,6 +34,7 @@ module NepNhaDesign
           if roof_faces.any?
             roof = root.entities.add_group
             roof.name = 'Mái hông'
+            roof.material = solid_material(model, { 'hex_color' => '#A94F3D', 'material_key' => 'Mái ngói' }, palette)
             begin
               add_concept_roof(roof.entities, geometry)
               roof_status = :built
@@ -146,6 +149,11 @@ module NepNhaDesign
         end
 
         solids.each_with_index { |solid, index| validate_solid(solid, index + 1) }
+        openings = params.fetch('openings', [])
+        unless openings.is_a?(Array) && openings.length <= 100
+          raise RPCError.new(-32602, 'Invalid openings list')
+        end
+        openings.each { |opening| validate_opening(opening, solids) }
         with_operation(model) do
           root = model.entities.add_group
           root.name = name
@@ -158,40 +166,135 @@ module NepNhaDesign
             'roof' => 'Mái', 'wall' => 'Tường', 'floor' => 'Sàn', 'door' => 'Cửa đi',
             'window' => 'Cửa sổ', 'planter' => 'Bồn cây'
           }
-          solids.each do |solid|
+          parents = {}
+          groups = Array.new(solids.length)
+          # Build every wall before making any cuts or inserting components.
+          add_solid = lambda do |solid, index|
             category = solid['category']
             parent = root
             if labels.key?(category)
               parent = categories[category] ||= root.entities.add_group.tap { |item| item.name = labels.fetch(category) }
             end
-            group = parent.entities.add_group
-            group.name = solid.fetch('name')
-            points = solid.fetch('footprint_mm').map do |x, y|
-              Geom::Point3d.new(x.mm, y.mm, solid.fetch('base_mm').mm)
-            end
-            face = group.entities.add_face(points)
-            raise RPCError.new(-32602, "Invalid footprint for #{group.name}") unless face
+            parents[index] = parent
+            groups[index] = extrude_solid(parent.entities, solid)
+          end
+          solids.each_with_index { |solid, index| add_solid.call(solid, index) if solid['category'] == 'wall' }
+          openings.each do |opening|
+            index = opening.fetch('wall_index')
+            parent = parents.fetch(index)
+            groups[index] = cut_wall_opening(parent.entities, groups[index], solids[index], opening)
+          end
+          solids.each_with_index do |solid, index|
+            add_solid.call(solid, index) unless solid['category'] == 'wall'
+            groups[index].material = solid_material(model, solid, palette)
+          end
+          openings.each do |opening|
+            next unless opening.fetch('kind', 'door') == 'door' && opening.fetch('height_mm') >= 2600
 
-            face.reverse! if face.normal.z < 0
-            face.pushpull(solid.fetch('height_mm').mm)
-            bounds = group.bounds
-            bottom = solid.fetch('base_mm')
-            top = bottom + solid.fetch('height_mm')
-            unless group.manifold? && (bounds.min.z.to_mm - bottom).abs < 0.1 &&
-                   (bounds.max.z.to_mm - top).abs < 0.1
-              raise RPCError.new(-32602, "Could not extrude #{group.name}")
-            end
-            color = solid.fetch('hex_color').upcase
-            opacity = solid.fetch('opacity', 1.0).to_f
-            group.material = palette[[color, opacity]] ||= begin
-              material = model.materials.add("Nếp Nhà #{color} #{opacity}")
-              material.color = Sketchup::Color.new(*color[1..].scan(/../).map { |part| part.to_i(16) })
-              material.alpha = opacity
-              material
-            end
+            wall = solids.fetch(opening.fetch('wall_index'))
+            glass = {
+              'name' => 'Ô kính cố định trên cửa', 'footprint_mm' => opening_polygon(opening, 10),
+              'base_mm' => wall.fetch('base_mm') + opening.fetch('sill_mm', 0) + 2400,
+              'height_mm' => opening.fetch('height_mm') - 2400, 'hex_color' => '#77BDD6',
+              'material_key' => 'Kính cố định', 'opacity' => 0.45
+            }
+            parent = categories['window'] ||= root.entities.add_group.tap { |item| item.name = labels.fetch('window') }
+            extrude_solid(parent.entities, glass).material = solid_material(model, glass, palette)
           end
           build_summary(root, id, scale, true)
         end
+      end
+
+      def extrude_solid(entities, solid)
+        group = entities.add_group
+        group.name = solid.fetch('name')
+        bottom = solid.fetch('base_mm')
+        height = solid.fetch('height_mm')
+        points = solid.fetch('footprint_mm').map { |x, y| Geom::Point3d.new(x.mm, y.mm, bottom.mm) }
+        face = group.entities.add_face(points)
+        raise RPCError.new(-32602, "Invalid footprint for #{group.name}") unless face
+
+        face.reverse! if face.normal.z < 0
+        face.pushpull(height.mm)
+        bounds = group.bounds
+        unless group.manifold? && (bounds.min.z.to_mm - bottom).abs < 0.1 &&
+               (bounds.max.z.to_mm - bottom - height).abs < 0.1
+          raise RPCError.new(-32602, "Could not extrude #{group.name}")
+        end
+        group
+      end
+
+      def solid_material(model, solid, palette)
+        key = solid['material_key']
+        color = solid.fetch('hex_color').upcase
+        opacity = solid.fetch('opacity', 1.0).to_f
+        palette[[key, color, opacity]] ||= begin
+          name = "Nếp Nhà #{[key, color, opacity].compact.join(' ')}"
+          rgb = color[1..].scan(/../).map { |part| part.to_i(16) }
+          material = model.materials[name]
+          unless material && !material.texture && material.color.to_a.first(3) == rgb &&
+                 (material.alpha - opacity).abs < 0.0001
+            material = model.materials.add(name)
+            material.color = Sketchup::Color.new(*rgb)
+            material.alpha = opacity
+          end
+          material
+        end
+      end
+
+      def validate_opening(opening, solids)
+        if opening.is_a?(Hash)
+          index = opening['wall_index']
+          wall = solids[index] if index.is_a?(Integer) && index.between?(0, solids.length - 1)
+          points = opening.values_at('start_mm', 'end_mm')
+          sill = opening.fetch('sill_mm', 0)
+          height = opening['height_mm']
+          depth = opening['wall_thickness_mm']
+          kind = opening.fetch('kind', 'door')
+          if wall && wall['category'] == 'wall' &&
+             points.all? { |point| point.is_a?(Array) && point.length == 2 &&
+               point.all? { |value| value.is_a?(Numeric) && value.between?(-1_000_000, 1_000_000) } } &&
+             Math.hypot(points[0][0] - points[1][0], points[0][1] - points[1][1]) >= 50 &&
+             sill.is_a?(Numeric) && sill >= 0 && height.is_a?(Numeric) &&
+             height >= 50 && sill + height < wall.fetch('height_mm') &&
+             depth.is_a?(Numeric) && depth.between?(20, 3000) &&
+             ((kind == 'door' && sill.zero? && [2200, 2400, 2600, 2700, 2800].include?(height)) ||
+               (kind == 'window' && sill > 0))
+            return
+          end
+        end
+        raise RPCError.new(-32602, 'Invalid wall opening dimensions, elevation or wall index')
+      end
+
+      def opening_polygon(opening, depth)
+        ax, ay = opening.fetch('start_mm')
+        bx, by = opening.fetch('end_mm')
+        length = Math.hypot(bx - ax, by - ay)
+        dx = -(by - ay) * depth / (2.0 * length)
+        dy = (bx - ax) * depth / (2.0 * length)
+        [[ax + dx, ay + dy], [bx + dx, by + dy], [bx - dx, by - dy], [ax - dx, ay - dy]]
+      end
+
+      def cut_wall_opening(entities, wall_group, wall, opening)
+        sill = opening.fetch('sill_mm', 0)
+        below_base = sill.zero? ? 10 : 0
+        thickness = opening.fetch('wall_thickness_mm')
+        height = opening.fetch('height_mm')
+        cutter = extrude_solid(entities, {
+          'name' => 'Opening cutter', 'footprint_mm' => opening_polygon(opening, thickness + 20),
+          'base_mm' => wall.fetch('base_mm') + sill - below_base, 'height_mm' => height + below_base
+        })
+        before = wall_group.volume
+        a, b = opening.values_at('start_mm', 'end_mm')
+        width = Math.hypot(a[0] - b[0], a[1] - b[1])
+        expected = width.mm * thickness.mm * height.mm
+        result = cutter.trim(wall_group)
+        unless result && result.manifold? && (before - result.volume - expected).abs <= expected * 0.005
+          raise RPCError.new(-32602, "Could not cut through #{wall.fetch('name')}; verify wall thickness and opening position")
+        end
+        cutter.erase! if cutter.valid?
+        result.name = wall.fetch('name')
+        result
       end
 
       def validate_solid(solid, index)
@@ -200,8 +303,10 @@ module NepNhaDesign
           name = solid['name']
           color = solid['hex_color']
           opacity = solid.fetch('opacity', 1.0)
+          key = solid['material_key']
           return if name.is_a?(String) && name.length.between?(1, 100) && valid_footprint?(polygon) &&
                     color.is_a?(String) && color.match?(/\A#[0-9a-fA-F]{6}\z/) &&
+                    (key.nil? || (key.is_a?(String) && key.length.between?(1, 100))) &&
                     opacity.is_a?(Numeric) && opacity.between?(0, 1) &&
                     solid['base_mm'].is_a?(Numeric) && solid['base_mm'].between?(-100_000, 100_000) &&
                     solid['height_mm'].is_a?(Numeric) && solid['height_mm'].between?(1, 100_000)

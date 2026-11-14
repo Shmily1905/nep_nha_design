@@ -1,9 +1,26 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.7.3
+Phiên bản 1.9.0
+
+Mặt bằng PDF và cửa
+- Bấm “Chọn mặt bằng / PDF”. Chọn trang xem trước để nhận diện đường bao hoặc
+  dựng concept. Để phân tích hoặc dựng nhiều tầng qua chat, nhập danh sách trang,
+  ví dụ 2, 4-6 (tối đa 10 trang/lượt). PDF tối đa 100 MB. Ghi rõ cao độ tầng
+  hoặc mốc căn chỉnh nếu bản vẽ thiếu.
+- Khi dựng chi tiết, trợ lý tạo tường rồi dùng Solid Tools đục ô cửa. Cửa đi cao
+  2200, 2400, 2600, 2700 hoặc 2800 mm. Ba mức cao từ 2600 mm có kính cố định
+  trên cao độ 2400 mm tính từ chân tường. Thao tác đục cần SketchUp hỗ trợ Solid Tools.
+
+Render
+- Mở mục Render. Ảnh Material ID đi theo góc nhìn đang mở. Chọn scene trong
+  danh sách để chuyển scene SketchUp hoặc bấm “Tải ảnh khối thô” để dùng ảnh có sẵn.
+- Chọn tỷ lệ để xem khung cắt giữa. Lưu PNG nếu cần đính kèm trên web.
+- Thêm ảnh tham chiếu, nhập ghi chú rồi bấm “Phân tích ảnh và viết prompt”.
+- Sao chép prompt và mở ChatGPT Images hoặc Gemini / Nano Banana. Đăng nhập
+  bằng tài khoản đang dùng, đính kèm PNG đã xuất trước ảnh tham chiếu và dán prompt.
 
 Concept ngoại thất
 - Chọn ảnh mặt bằng, nhập cạnh dài nhất của tường ngoài và chiều cao tầng (mm).
-  Bấm “Tự nhận diện và dựng 3D” để dựng khối trắng và mái hông tự động.
+  Bấm “Tự nhận diện và dựng 3D” để dựng khối thân nhà và mái hông tự động.
   Mái mặc định dốc 30°, đua 500 mm, diềm 150 mm. Hỗ trợ đường bao lồi và chữ L
   vuông góc. Với đường bao lõm khác, kết quả gồm khối thân nhà.
 - Chọn ảnh mặt bằng rồi mở “Concept ngoại thất”. Bấm “Nhận diện đường bao”
@@ -34,7 +51,7 @@ Mái hông với 1001bit Pro
    - Nếu thấy “Cài thành phần ChatGPT”, bấm nút đó và chờ hoàn tất.
    - Bấm “Tiếp tục với ChatGPT”. Trình duyệt sẽ mở để bạn đăng nhập.
    - Khi trạng thái chuyển thành “Đã kết nối”, nhập yêu cầu và bấm Gửi.
-6. Mở model trống, bấm “Chọn ảnh mặt bằng” rồi thêm từ một đến năm ảnh
+6. Mở model trống, bấm “Chọn mặt bằng / PDF” rồi thêm từ một đến năm ảnh
    tham chiếu nếu có. Ảnh hỗ trợ PNG, JPEG và WebP. Mỗi ảnh tối đa 10 MB,
    tổng ảnh tối đa 25 MB. Ví dụ yêu cầu:
    “Dựng tầng trệt theo mặt bằng. Cạnh ngang ngoài cùng dài 6.000 mm.
@@ -65,6 +82,10 @@ Cập nhật repository riêng tư:
 - Tạo token, sao chép token một lần, dán vào trợ lý rồi bấm Lưu đăng nhập.
 - Token được lưu trong Windows Credential Manager hoặc macOS Keychain, không ghi
   vào tệp cấu hình. Khi mở trợ lý, tiện ích tự kiểm tra Release mới.
-Chọn Kiểm tra cập nhật, rồi chọn Cập nhật nếu có bản mới. Lưu và mở lại SketchUp.
+Mỗi lần mở trợ lý, tiện ích tự kiểm tra, xác minh SHA-256 và cài Release mới nếu có.
+Khi hiện thông báo đã cài, lưu bản vẽ và mở lại SketchUp để tải mã mới.
+Có thể chọn giao diện Cam · Xanh đen hoặc Cam · Trắng. Trên Windows, bật thanh
+công cụ Nếp Nhà Design trong View > Toolbars và kéo vào cạnh cửa sổ SketchUp.
+Cửa sổ trợ lý nổi ghi nhớ vị trí và kích thước.
 Để phát hành, tạo GitHub Release với tag vX.Y.Z và đính kèm tệp
 Nep-Nha-Design-Tro-Ly-ChatGPT-vX.Y.Z.rbz có SHA-256 do GitHub cung cấp.

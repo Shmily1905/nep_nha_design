@@ -8,8 +8,10 @@ require 'open3'
 require 'securerandom'
 require 'thread'
 require 'timeout'
+require 'tmpdir'
 require 'uri'
 Sketchup.require(File.join(__dir__, 'su_mcp_bridge'))
+Sketchup.require(File.join(__dir__, 'render_scene'))
 
 module NepNhaDesign
   module Setup
@@ -28,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.7.3'
+    VERSION = '1.9.0'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -167,14 +169,17 @@ module NepNhaDesign
       def show_chat
         if @chat_dialog&.visible?
           @chat_dialog.bring_to_front
+          check_open_update
           return
         end
 
         @thread_id = nil
+        @render_dir = Dir.mktmpdir('nep-nha-render-')
+        @render_source = @render_signature = @render_selected = nil
         @chat_dialog = UI::HtmlDialog.new(
           dialog_title: 'Trợ lý AI Nếp Nhà', width: 510, height: 740,
-          min_width: 380, min_height: 500, resizable: true,
-          style: UI::HtmlDialog::STYLE_DIALOG
+          min_width: 370, min_height: 480, resizable: true,
+          preferences_key: 'NepNhaDesign.Assistant', style: UI::HtmlDialog::STYLE_UTILITY
         )
         @chat_dialog.set_file(CHAT_HTML_PATH)
         @chat_dialog.add_action_callback('nep_nha_send') { |_context, raw| receive_chat(raw) }
@@ -182,6 +187,31 @@ module NepNhaDesign
         # Keep plan and reference picking on separate callback names. This
         # avoids role arguments being misrouted by SketchUp's HtmlDialog.
         @chat_dialog.add_action_callback('nep_nha_pick_plan') { |_context| pick_attachment('plan') }
+        @chat_dialog.add_action_callback('nep_nha_pdf_preview') do |_context, path, page, token|
+          run_panel_task('pdfPreview', { action: 'pdf_preview', pdf_path: path, pdf_page: page.to_i }, token)
+        end
+        @chat_dialog.add_action_callback('nep_nha_render_watch') do |_context, enabled|
+          render_watch(enabled == true)
+        end
+        @chat_dialog.add_action_callback('nep_nha_render_scene') do |_context, id|
+          next if @render_processing || @chat_busy
+
+          @render_source = nil
+          if id.empty?
+            @render_selected = nil
+            preview_render_scene(true)
+          else
+            select_render_scene(id)
+          end
+        end
+        @chat_dialog.add_action_callback('nep_nha_render_pick') { |_context| pick_render_image }
+        @chat_dialog.add_action_callback('nep_nha_export_render') do |_context, ratio|
+          export_render(ratio)
+        end
+        @chat_dialog.add_action_callback('nep_nha_render_web') do |_context, provider|
+          url = { 'chatgpt' => 'https://chatgpt.com/', 'gemini' => 'https://gemini.google.com/app' }[provider]
+          UI.openURL(url) if url
+        end
         @chat_dialog.add_action_callback('nep_nha_pick_reference') do |_context|
           pick_attachment('reference')
         end
@@ -200,6 +230,7 @@ module NepNhaDesign
           repository = Sketchup.read_default('NepNhaDesign', 'UpdateRepository', DEFAULT_REPOSITORY)
           @chat_dialog.execute_script("window.NepNhaChat.repository(#{JSON.generate(repository)})")
           run_panel_task('auth', { action: 'auth', codex_candidates: codex_candidates })
+          check_open_update
         end
         @chat_dialog.add_action_callback('nep_nha_login') { |_context| login_chatgpt }
         @chat_dialog.add_action_callback('nep_nha_install_codex') { |_context| install_codex }
@@ -209,8 +240,7 @@ module NepNhaDesign
         @chat_dialog.add_action_callback('nep_nha_update') do |_context, action, repository, version|
           next unless %w[check_update download_update].include?(action)
 
-          run_panel_task('update', { action: action, repository: repository,
-                                    version: VERSION, expected_version: version })
+          start_update(action, repository, version)
         end
         @chat_dialog.add_action_callback('nep_nha_github') do |_context, action, repository, token|
           next unless %w[github_status github_save github_logout].include?(action)
@@ -231,23 +261,57 @@ module NepNhaDesign
           ].join('&')
           UI.openURL("https://github.com/settings/personal-access-tokens/new?#{query}")
         end
-        @chat_dialog.set_on_closed { @chat_dialog = nil }
+        @chat_dialog.set_on_closed do
+          render_watch(false)
+          directory = @render_dir
+          if @chat_busy || @render_processing
+            cleanup = UI.start_timer(0.5, true) do
+              next if @chat_busy || @render_processing
+
+              UI.stop_timer(cleanup)
+              FileUtils.remove_entry(directory) if File.directory?(directory)
+            end
+          elsif File.directory?(directory)
+            FileUtils.remove_entry(directory)
+          end
+          @chat_dialog = nil
+        end
         @chat_dialog.show
       rescue StandardError => e
         UI.messagebox("Không mở được bảng chat: #{e.message}")
       end
 
+      def check_open_update
+        repository = Sketchup.read_default('NepNhaDesign', 'UpdateRepository', DEFAULT_REPOSITORY)
+        start_update('auto_update', repository)
+      end
+
+      def start_update(action, repository, version = nil)
+        return if @update_in_progress
+        if @installed_version
+          message = "Đã cài v#{@installed_version}. Mở lại SketchUp để dùng bản mới."
+          @chat_dialog.execute_script("window.NepNhaChat.update(#{JSON.generate(ok: true, installed: true, message: message)})")
+          return
+        end
+
+        @update_in_progress = true
+        @chat_dialog.execute_script('window.NepNhaChat.updateStarted()')
+        run_panel_task('update', { action: action, repository: repository,
+                                  version: VERSION, expected_version: version })
+      end
+
       def pick_attachment(role)
         is_plan = role == 'plan'
-        filter = 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
-        title = is_plan ? 'Chọn ảnh mặt bằng' : 'Chọn ảnh tham chiếu'
+        filter = is_plan ? 'Mặt bằng|*.pdf;*.png;*.jpg;*.jpeg;*.webp||' : 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
+        title = is_plan ? 'Chọn mặt bằng' : 'Chọn ảnh tham chiếu'
         path = UI.openpanel(title, '', filter)
         return unless path
 
         allowed = %w[.png .jpg .jpeg .webp]
+        allowed << '.pdf' if is_plan
         unless allowed.include?(File.extname(path).downcase)
           message = if is_plan
-                      'Ảnh mặt bằng chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
+                      'Mặt bằng hỗ trợ PDF, PNG, JPG, JPEG hoặc WebP.'
                     else
                       'Ảnh tham chiếu chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
                     end
@@ -295,8 +359,15 @@ module NepNhaDesign
           fast: request['fast'] == true, images: request.fetch('images', []), skills_dir: skills_dir,
           local_skills_dir: local_skills_dir, draft_skill: draft,
           selection: Bridge.selection_info(Sketchup.active_model),
-          pdf_page: request.fetch('pdf_page', 1)
+          pdf_page: request.fetch('pdf_page', 1), pdf_pages: request.fetch('pdf_pages', [])
         }
+        if request['render'] == true
+          payload[:action] = 'render'
+          payload[:thread_id] = nil
+          payload[:render_ratio] = request['render_ratio']
+          payload[:render_crop] = render_crop_request(request['render_ratio'])
+          payload[:prompt] = "#{prompt}\n#{@render_source[:legend]}"
+        end
         payload[:concept] = request['concept'] if request.key?('concept')
         payload[:action] = 'trace_plan' if request['trace_plan'] == true
         model = Sketchup.active_model
@@ -326,7 +397,7 @@ module NepNhaDesign
               raise ArgumentError, 'Model đã đổi trong lúc nhận diện. Hãy bấm dựng lại.' unless Sketchup.active_model == model
 
               bounds = Bridge.build_auto_concept(model, geometry)
-              text = "Đã dựng khối trắng #{bounds[:width]} × #{bounds[:depth]} mm, cao tầng #{geometry['height_mm']} mm. " \
+              text = "Đã dựng khối thân nhà #{bounds[:width]} × #{bounds[:depth]} mm, cao tầng #{geometry['height_mm']} mm. " \
                      "Cạnh dài nhất lấy theo #{geometry['length_mm']} mm."
               result['text'] = case bounds[:roof]
                                when :built
@@ -433,7 +504,7 @@ module NepNhaDesign
         FileUtils.rm_f(result_path) if result_path
       end
 
-      def run_panel_task(channel, payload)
+      def run_panel_task(channel, payload, token = nil)
         queue = Queue.new
         dialog = @chat_dialog
         Thread.new { queue << run_chat_worker(payload) }
@@ -444,12 +515,15 @@ module NepNhaDesign
             next
           end
           UI.stop_timer(timer)
+          @render_processing = false if channel == 'renderExport'
+          @update_in_progress = false if channel == 'update'
           path = result.delete('path')
           begin
-            if path && dialog.equal?(@chat_dialog) && dialog.visible?
+            if path && channel == 'update'
               installed = Sketchup.install_from_archive(path)
+              @installed_version = result['version'] if installed
               result = installed ?
-                { ok: true, installed: true, message: 'Đã cài. Hãy lưu bản vẽ và mở lại SketchUp.' } :
+                { ok: true, installed: true, message: "Đã cài v#{@installed_version}. Lưu bản vẽ và mở lại SketchUp để dùng bản mới." } :
                 { ok: false, error: 'SketchUp chưa chấp nhận gói cập nhật.' }
             end
           rescue StandardError => e
@@ -461,14 +535,15 @@ module NepNhaDesign
             if channel == 'update' && payload[:action] == 'check_update' && result['ok']
               Sketchup.write_default('NepNhaDesign', 'UpdateRepository', payload[:repository])
             end
-            if channel == 'github' && result['ok'] && result['state'] == 'ready'
+            if channel == 'github' && payload[:action] == 'github_save' && result['ok'] && result['state'] == 'ready'
               Sketchup.write_default('NepNhaDesign', 'UpdateRepository', payload[:repository])
+              check_open_update
             end
             if channel == 'auth'
               @codex_path = result.delete('codex_path')
               result['message'] ||= result['error']
             end
-            dialog.execute_script("window.NepNhaChat.#{channel}(#{JSON.generate(result)})")
+            dialog.execute_script("window.NepNhaChat.#{channel}(#{JSON.generate(result)}, #{JSON.generate(token)})")
           end
         end
       end
@@ -655,6 +730,12 @@ module NepNhaDesign
     menu.add_separator
     menu.add_item('Cài và kiểm tra') { Setup.install_and_check }
     menu.add_item('Chọn kho skill dùng chung') { Setup.choose_shared_skills }
+    command = UI::Command.new('Trợ lý AI Nếp Nhà') { Setup.open_chat }
+    command.small_icon = command.large_icon = File.join(Setup::ROOT, 'logo.png')
+    command.tooltip = 'Mở Trợ lý AI Nếp Nhà'
+    toolbar = UI::Toolbar.new('Nếp Nhà Design')
+    toolbar.add_item(command)
+    toolbar.restore if toolbar.get_last_state == TB_VISIBLE
     menu.add_item('Xem cấu hình MCP nâng cao') { Setup.show_config }
     menu.add_separator
     menu.add_item('Bật cầu nối SketchUp') { Bridge.start }

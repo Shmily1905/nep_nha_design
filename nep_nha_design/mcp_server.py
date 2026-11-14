@@ -127,7 +127,18 @@ class Solid(BaseModel):
     height_mm: Annotated[float, Field(ge=1, le=100_000)]
     hex_color: HexColor
     opacity: Opacity = 1.0
+    material_key: AssetName | None = None
     category: Literal["roof", "wall", "floor", "door", "window", "planter", "other"] = "other"
+
+
+class Opening(BaseModel):
+    wall_index: Annotated[int, Field(ge=0, lt=200)]
+    start_mm: tuple[float, float]
+    end_mm: tuple[float, float]
+    wall_thickness_mm: Annotated[float, Field(ge=20, le=3000)]
+    sill_mm: Annotated[float, Field(ge=0, le=100_000)] = 0
+    height_mm: Annotated[float, Field(ge=50, le=100_000)]
+    kind: Literal["door", "window"] = "door"
 
 
 @mcp.tool()
@@ -164,16 +175,22 @@ async def build_model(
     name: AssetName,
     scale_basis: Annotated[str, Field(min_length=1, max_length=500)],
     solids: Annotated[list[Solid], Field(min_length=1, max_length=200)],
+    openings: Annotated[list[Opening], Field(max_length=100)] | None = None,
 ) -> dict[str, Any]:
     """Add one editable SketchUp group of solid extrusions in mm. Give each solid
     a simple XY polygon without a repeated closing vertex, base Z, height and
-    color. Split wall polygons around openings and use sill/header solids.
+    color. Supply complete wall solids, then openings with zero-based wall
+    index, width endpoints along the wall centerline and actual wall thickness.
+    Sill is relative to that wall base. Door heights: 2200/2400/2600/2700/2800.
+    Taller doors get fixed glazing above 2400 mm. Use distinct material_key
+    values for distinct materials, and reuse keys and colors for matching ones.
     Describe the scale anchor or approved concept assumption in scale_basis.
     Reuse the same ID and identical input when retrying an uncertain response.
     """
     return await rpc(
         "build_model", build_id=build_id, name=name, scale_basis=scale_basis,
-        solids=[solid.model_dump(mode="json") for solid in solids],
+        solids=[solid.model_dump(mode="json", exclude_none=True) for solid in solids],
+        **({"openings": [opening.model_dump(mode="json") for opening in openings]} if openings else {}),
     )
 
 
