@@ -73,8 +73,8 @@ def hip_wings(points):
     x0, xm, x1 = xs
     y0, ym, y1 = ys
     corners = {(x0, y0), (x0, y1), (x1, y0), (x1, y1)}
-    missing = corners.difference(points)
-    if len(missing) != 1 or (xm, ym) not in points:
+    missing = corners.difference(tuple(point) for point in points)
+    if len(missing) != 1 or not any(x == xm and y == ym for x, y in points):
         return []
     x, y = missing.pop()
     return [

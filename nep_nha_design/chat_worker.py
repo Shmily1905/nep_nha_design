@@ -97,7 +97,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.9.4"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.9.5"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
