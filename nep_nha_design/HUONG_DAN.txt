@@ -1,5 +1,9 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.9.5
+Phiên bản 1.10.0
+
+Large Tool Set
+- Xem 04-sketchup-large-tool-set.md trong kho skill để tra công cụ, phím thao tác
+  và các lệnh Ruby/MCP. Có thể nhờ trợ lý vẽ theo tọa độ mm hoặc mở công cụ gốc.
 
 Mặt bằng PDF và cửa
 - Đính kèm mặt bằng PDF hoặc ảnh. Trợ lý tự dựng sàn, tường bao và tường ngăn,

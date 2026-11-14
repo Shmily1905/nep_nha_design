@@ -14,6 +14,7 @@ PACKAGE_FILES = [
     "cai_dat_mcp.py",
     "chat.html",
     "chat_worker.py",
+    "drawing_tools.rb",
     "github_credential.py",
     "hip_roof.py",
     "logo.png",
