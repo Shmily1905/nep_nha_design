@@ -44,7 +44,7 @@
     .composer { display:flex; gap:5px; flex-wrap:wrap; align-items:center; margin:5px 0; }
     .composer .link { min-height:27px; padding:3px 7px; font-size:11px; }
     #prompt { display:block; min-height:50px; padding:7px 9px; }
-    #attachments { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
+    #attachments, #renderReferences { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
     .attachment { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:100%;
       padding:2px 4px 2px 6px; border:1px solid var(--line); border-radius:6px; font-size:11px; }
     .attachment-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; min-width:0; }
@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.10.1">v1.10.1</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.10.2">v1.10.2</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -125,13 +125,19 @@
       <div id="renderFrame" hidden><img id="renderImage" alt="Xem trước ảnh cắt giữa khung"></div>
       <button type="button" class="link" id="exportRender" disabled>Lưu PNG đã cắt</button>
       <p class="hint" id="renderStatus" role="status"></p>
+      <div class="render-fields">
+        <strong>Ảnh tham chiếu</strong>
+        <button type="button" class="link" id="pickRenderReference">Thêm ảnh tham chiếu</button>
+      </div>
+      <div id="renderReferences" aria-live="polite"></div>
+      <p class="hint" id="renderReferenceStatus" role="status">Chưa có ảnh tham chiếu. Prompt sẽ dựa vào ảnh khối thô và ghi chú.</p>
       <label>Ghi chú render <textarea id="renderNotes" rows="2" placeholder="Địa điểm, ánh sáng hoặc vật liệu cần ưu tiên"></textarea></label>
       <button type="button" class="link" id="analyseRender" disabled>Phân tích ảnh và viết prompt</button>
       <label id="renderPromptRow" hidden>Prompt tạo ảnh <textarea id="renderPrompt" rows="5"></textarea></label>
       <div class="render-actions"><button type="button" class="link" id="copyRender" hidden>Sao chép prompt</button>
       <button type="button" class="link" id="openChatGPT">Mở ChatGPT Images</button>
       <button type="button" class="link" id="openGemini">Mở Gemini / Nano Banana</button></div>
-      <p class="hint">Dùng nút Thêm ảnh tham chiếu ở trên. Khi tạo ảnh trên web, tải PNG khối thô lên trước, rồi thêm ảnh tham chiếu và dán prompt.</p>
+      <p class="hint">Khi tạo ảnh trên web, tải PNG khối thô lên trước, thêm các ảnh tham chiếu trong danh sách này rồi dán prompt.</p>
     </details>
     <div class="actions"><button class="reset" id="reset">Cuộc trò chuyện mới</button><label>Model <select id="model"><option value="">Tự động</option></select></label><button class="send" id="send" disabled>Gửi</button></div>
     <p class="hint" id="modelStatus"></p>
@@ -268,7 +274,7 @@
       let attachments = [];
       const referencePurposes = [
         ['style', 'Phong cách chung'], ['roof', 'Mái'], ['facade', 'Mặt đứng'],
-        ['material', 'Vật liệu'], ['detail', 'Chi tiết']
+        ['material', 'Vật liệu'], ['lighting', 'Ánh sáng'], ['detail', 'Chi tiết']
       ];
       const pdfPages = document.getElementById('pdfPages');
       const pdfStatus = document.getElementById('pdfStatus');
@@ -347,43 +353,58 @@
       document.getElementById('openChatGPT').onclick = () => window.sketchup.nep_nha_render_web('chatgpt');
       document.getElementById('openGemini').onclick = () => window.sketchup.nep_nha_render_web('gemini');
 
+      const renderReferencePicker = document.getElementById('pickRenderReference');
+      const renderReferenceStatus = document.getElementById('renderReferenceStatus');
       function renderAttachments() {
         document.getElementById('pdfPageRow').hidden = !attachments.some(
           file => file.role === 'plan' && /\.pdf$/i.test(file.name)
         );
         const list = document.getElementById('attachments');
-        list.replaceChildren();
-        attachments.forEach((file, index) => {
-          const chip = document.createElement('div');
-          chip.className = 'attachment';
-          const name = document.createElement('span');
-          name.className = 'attachment-name';
-          name.textContent = `${file.role === 'plan' ? 'Mặt bằng · ' : ''}${file.name}`;
-          name.title = file.name;
-          chip.appendChild(name);
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'link';
-          button.textContent = '×';
-          button.setAttribute('aria-label', `Bỏ ảnh ${file.name}`);
-          button.addEventListener('click', () => {
-            if (busy) return;
-            attachments.splice(index, 1);
-            if (file.role === 'plan') { exteriorPending = false; exteriorSent = false; exteriorNotes = []; }
-            renderAttachments();
-            scheduleExterior();
-          });
-          if (file.role === 'reference') {
-            const select = document.createElement('select');
-            select.setAttribute('aria-label', `Vai trò của ${file.name}`);
-            for (const [value, label] of referencePurposes) select.add(new Option(label, value));
-            select.value = file.purpose || 'style';
-            select.onchange = () => { file.purpose = select.value; };
-            chip.appendChild(select);
-          }
-          chip.appendChild(button);
-          list.appendChild(chip);
+        const renderList = document.getElementById('renderReferences');
+        list.replaceChildren(...attachments.map(file => attachmentChip(file)));
+        const references = attachments.filter(file => file.role === 'reference');
+        renderList.replaceChildren(...references.map(file => attachmentChip(file)));
+        renderReferenceStatus.textContent = references.length
+          ? `${references.length}/5 ảnh · Dùng chung với danh sách ảnh tham chiếu trong chat.`
+          : 'Chưa có ảnh tham chiếu. Prompt sẽ dựa vào ảnh khối thô và ghi chú.';
+        renderReferencePicker.disabled = references.length >= 5;
+      }
+      function attachmentChip(file) {
+        const chip = document.createElement('div');
+        chip.className = 'attachment';
+        const name = document.createElement('span');
+        name.className = 'attachment-name';
+        name.textContent = `${file.role === 'plan' ? 'Mặt bằng · ' : ''}${file.name}`;
+        name.title = file.name;
+        chip.appendChild(name);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'link';
+        button.textContent = '×';
+        button.setAttribute('aria-label', `Bỏ ảnh ${file.name}`);
+        button.addEventListener('click', () => {
+          if (busy) return;
+          attachments = attachments.filter(item => item !== file);
+          if (file.role === 'reference') clearRenderPrompt();
+          if (file.role === 'plan') { exteriorPending = false; exteriorSent = false; exteriorNotes = []; }
+          renderAttachments();
+          scheduleExterior();
         });
+        if (file.role === 'reference') {
+          const select = document.createElement('select');
+          select.setAttribute('aria-label', `Vai trò của ${file.name}`);
+          for (const [value, label] of referencePurposes) select.add(new Option(label, value));
+          select.value = file.purpose || 'style';
+          select.onchange = () => {
+            if (busy) { select.value = file.purpose || 'style'; return; }
+            file.purpose = select.value;
+            clearRenderPrompt();
+            renderAttachments();
+          };
+          chip.appendChild(select);
+        }
+        chip.appendChild(button);
+        return chip;
       }
       function callPicker(name, legacyRole) {
         if (typeof window.sketchup[name] === 'function') window.sketchup[name]();
@@ -393,7 +414,7 @@
       document.getElementById('pickPlan').onclick = () => {
         if (!busy) callPicker('nep_nha_pick_plan', 'plan');
       };
-      document.getElementById('pickReference').onclick = () => {
+      document.getElementById('pickReference').onclick = renderReferencePicker.onclick = () => {
         if (!busy && attachments.filter(file => file.role === 'reference').length < 5)
           callPicker('nep_nha_pick_reference', 'reference');
       };
@@ -495,6 +516,7 @@
           }
           if (attachments.some(item => item.path === file.path && item.role === file.role)) return;
           attachments.push(file);
+          if (file.role === 'reference') clearRenderPrompt();
           renderAttachments();
           scheduleExterior();
         },
@@ -548,6 +570,7 @@
           if (result.reset) {
             review.hidden = true;
             attachments = [];
+            clearRenderPrompt();
             exteriorPending = exteriorSent = false;
             exteriorNotes = [];
             renderAttachments();

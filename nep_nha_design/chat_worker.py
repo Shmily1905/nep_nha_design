@@ -97,7 +97,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.10.1"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.10.2"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
@@ -182,7 +182,7 @@ def turn_inputs(request: dict[str, Any], directory: Path) -> tuple[list[str], st
     flags = []
     descriptions = []
     purposes = {"style": "phong cách chung", "roof": "mái", "facade": "mặt đứng và nhịp cửa",
-                "material": "vật liệu", "detail": "chi tiết kiến trúc"}
+                "material": "vật liệu", "lighting": "ánh sáng", "detail": "chi tiết kiến trúc"}
     roles = []
     total_size = 0
     for image in images:

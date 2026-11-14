@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.10.1
+Phiên bản 1.10.2
 
 Large Tool Set
 - Xem 04-sketchup-large-tool-set.md trong kho skill để tra công cụ, phím thao tác
@@ -31,7 +31,8 @@ Render
 - Mở mục Render. Ảnh Material ID đi theo góc nhìn đang mở. Chọn scene trong
   danh sách để chuyển scene SketchUp hoặc bấm “Tải ảnh khối thô” để dùng ảnh có sẵn.
 - Chọn tỷ lệ để xem khung cắt giữa. Lưu PNG nếu cần đính kèm trên web.
-- Thêm ảnh tham chiếu, nhập ghi chú rồi bấm “Phân tích ảnh và viết prompt”.
+- Thêm tối đa 5 ảnh tại mục Ảnh tham chiếu trong Render. Danh sách dùng chung
+  với chat. Chọn vai trò, nhập ghi chú rồi bấm “Phân tích ảnh và viết prompt”.
 - Sao chép prompt và mở ChatGPT Images hoặc Gemini / Nano Banana. Đăng nhập
   bằng tài khoản đang dùng, đính kèm PNG đã xuất trước ảnh tham chiếu và dán prompt.
 
