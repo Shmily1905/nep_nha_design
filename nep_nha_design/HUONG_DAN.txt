@@ -1,9 +1,10 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.9.3
+Phiên bản 1.9.4
 
 Mặt bằng PDF và cửa
-- Đính kèm PDF mặt bằng và ảnh tham chiếu. Trợ lý tự dựng tường bao, khoét ô,
-  lắp cửa và dựng mái hông. PDF tối đa 100 MB. Mặc định đọc cả PDF đến 10 trang.
+- Đính kèm mặt bằng PDF hoặc ảnh. Trợ lý tự dựng sàn, tường bao và tường ngăn,
+  khoét ô, lắp cửa đi, cửa sổ và dựng mái hông. Ảnh tham chiếu là tùy chọn.
+  Chiều cao tường mặc định 4200 mm khi bản vẽ không ghi. PDF tối đa 100 MB. Mặc định đọc cả PDF đến 10 trang.
   Với PDF dài hơn, chọn các trang cần dựng trong mục Trang PDF rồi gửi lại.
 - Nếu thiếu kích thước, trả lời ngay trong chat. Với mặt bằng dạng ảnh, nhắn
   một kích thước thật kèm hai đầu mốc nếu bản vẽ chưa ghi rõ.

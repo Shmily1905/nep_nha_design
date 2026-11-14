@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.9.3'
+    VERSION = '1.9.4'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -391,11 +391,12 @@ module NepNhaDesign
 
               Bridge.build_model(model, build)
               roof = build.fetch('hip_roof')
-              summary = "Đã dựng #{build['solids'].length} đoạn tường bao, lắp #{build['openings'].length} ô cửa và dựng mái hông dốc #{roof['pitch']}°, đua #{roof['overhang_mm']} mm."
+              walls, floors = build.fetch('solids').partition { |solid| solid['category'] == 'wall' }
+              summary = "Đã dựng #{floors.length} sàn, #{walls.length} đoạn tường, lắp #{build['openings'].length} ô cửa và dựng mái hông dốc #{roof['pitch']}°, đua #{roof['overhang_mm']} mm."
               result['text'] = [summary, result['text']].reject(&:empty?).join("\n")
             rescue StandardError => e
               result['ok'] = false
-              result['error'] = "Không dựng được ngoại thất: #{e.message}"
+              result['error'] = "Không dựng được nhà: #{e.message}"
             end
           end
           @thread_id = result['thread_id'] if result['ok'] && result['thread_id'] && !payload[:action]
