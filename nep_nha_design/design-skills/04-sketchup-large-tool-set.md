@@ -8,7 +8,18 @@
 4. Dựng khối chính trước, rồi khoét mở, thêm chi tiết, làm mềm các cạnh phân đoạn, gán Tag và vật liệu. Giữ các mép gãy thật tại giao mặt cần sắc.
 5. Kiểm tra bằng Top, Front và mặt cắt. Đo khổ bao, bề dày, cao độ và độ hở. Kiểm tra mặt trước hướng ra ngoài. Với vật thể cần kín, kiểm tra Solid trong Entity Info; sửa cạnh hở, mặt trùng, mặt trong và giao xuyên trước Boolean hoặc xuất.
 
-Khi trợ lý thao tác trên model, dùng các công cụ MCP hiện có và chỉ báo phần đã được công cụ xác nhận. build_model phù hợp cho mặt bằng XY đùn đứng, tường và ô mở có số đo. Khoét tường hiện hữu bằng luồng inspect_wall và cut_existing_wall. Với các dạng vượt phạm vi đó, diễn giải cách tạo bằng công cụ SketchUp theo thông số của bài, gồm điểm cần bấm, hướng, khoảng cách và phép kiểm tra. Các tên Ruby dưới đây giải thích cơ chế hình học.
+Khi người dùng yêu cầu dựng, chọn phương pháp theo hình học và thực thi qua MCP. Với hình học mới, gộp các cấu kiện liên quan vào một lần `draw_geometry`; dùng `build_model` cho tường, sàn và ô mở. Đọc kích thước bao, số mặt và trạng thái Solid sau khi dựng. Chỉ báo hoàn tất phần công cụ đã xác nhận.
+
+## Chọn thao tác MCP
+
+- Tiết diện phẳng đi thẳng: dùng `extrusion` với hướng pháp tuyến và chiều dài có dấu. Khối tròn xoay: dùng `revolve` với trục Z cục bộ và tiết diện bán kính–cao độ. Nón dùng [0,0], [R,0], [0,H]; trụ thêm [R,H] sau [R,0]. Đặt số đoạn theo dung sai, ưu tiên bội số của 4 để các cực nằm đúng trên trục X và Y. Có thể xoay khối khi cần đổi trục.
+- Tiết diện chạy theo tuyến: dùng `sweep` với tiết diện đặt vuông góc đúng tại đầu tuyến. Dùng ít đoạn đủ mịn, tránh góc hoặc bán kính gây tự giao. Đặt `solid: true` khi cần kiểm tra kín.
+- Tiết diện thay đổi: dùng `loft`, ghép các vòng cùng số đỉnh, cùng chiều và cùng mốc bắt đầu. Dùng một đỉnh ở đầu hoặc cuối cho chóp. Dùng `mesh` cho bề mặt tự do hoặc topology tùy chỉnh, giữ mặt trước hướng ra ngoài và chia tam giác vùng vênh.
+- Offset biên ngang đơn bằng `offset`, dấu dương ra ngoài. Nếu biên sụp hoặc tự cắt, giảm khoảng dịch hoặc tính lại các miền; biên nghiêng có thể đổi hệ trục để tính rồi chiếu kết quả về mặt phẳng dựng.
+- Dùng `inspect_drawing` để đọc ID, điểm đầu cạnh, biên mặt và nhóm. Dùng `edit_drawing` để sửa vùng chọn, thực hiện biến đổi, tạo bản sao, gán Tag, tô vật liệu, làm mềm cạnh và Boolean các khối Solid. Với tường hiện hữu, ưu tiên `inspect_wall` và `cut_existing_wall`.
+- Dùng `measure_drawing` cho khoảng cách và góc, `draw_geometry` cho guide/kích thước/chữ, `set_drawing_axes` khi cần đổi trục vẽ, và `drawing_camera` để kiểm tra nhiều hướng. Điều khiển Walk theo tọa độ là dịch chuyển camera ngang. Dùng viewport để kiểm tra mô hình thay vì suy đoán từ lời mô tả.
+
+Chọn mốc, hướng, độ mịn và vị trí tương đối hợp lý khi yêu cầu đã đủ kích thước. Nếu công cụ báo lỗi hình học, sửa đầu vào hoặc chuyển phương pháp tương đương rồi kiểm tra lại.
 
 ## Công cụ và cơ chế
 

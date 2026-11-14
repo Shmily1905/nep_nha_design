@@ -7,12 +7,13 @@ require 'base64'
 require 'tmpdir'
 require 'digest'
 require_relative 'build_model'
+require_relative 'drawing_tools'
 
 module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.10.2'
+    VERSION = '1.11.0'
     MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8
@@ -191,6 +192,22 @@ module NepNhaDesign
           ensure_tag(active_model, params)
         when 'upsert_material'
           upsert_material(active_model, params)
+        when 'draw_geometry'
+          draw_geometry(active_model, params)
+        when 'build_hip_roof'
+          build_hip_roof(active_model, params)
+        when 'inspect_drawing'
+          inspect_drawing(active_model, params)
+        when 'select_drawing'
+          select_drawing(active_model, params)
+        when 'edit_drawing'
+          edit_drawing(active_model, params)
+        when 'measure_drawing'
+          measure_drawing(params)
+        when 'set_drawing_axes'
+          set_drawing_axes(active_model, params)
+        when 'drawing_camera'
+          drawing_camera(active_model, params)
         when 'build_model'
           build_model(active_model, params.reject { |key, _| %w[fit_openings hip_roof].include?(key) })
         when 'prepare_hip_roof_face'

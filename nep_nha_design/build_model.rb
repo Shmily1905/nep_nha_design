@@ -24,6 +24,8 @@ module NepNhaDesign
           end
         end
         eave_segments.each do |a, b|
+          next if fascia.zero?
+
           entities.add_face(a, b, Geom::Point3d.new(b.x, b.y, b.z - fascia),
                             Geom::Point3d.new(a.x, a.y, a.z - fascia))
         end

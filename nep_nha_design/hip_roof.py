@@ -35,7 +35,7 @@ def subtract(left, right):
     return tuple(a - b for a, b in zip(left, right))
 
 
-def eave_planes(points):
+def eave_planes(points, overhang):
     """Inward unit distance from each offset eave line."""
     result = []
     for (x, y), (u, v) in edges(points):
@@ -43,7 +43,7 @@ def eave_planes(points):
         if length < 1:
             raise ValueError("Cạnh mái quá ngắn.")
         a, b = (y - v) / length, (u - x) / length
-        result.append((a, b, OVERHANG - a * x - b * y))
+        result.append((a, b, overhang - a * x - b * y))
     return result
 
 
@@ -83,11 +83,11 @@ def hip_wings(points):
     ]
 
 
-def roof_surfaces(points, elevation):
+def roof_surfaces(points, elevation, *, pitch=PITCH, overhang=OVERHANG):
     if area2(points) < 0:
         points = points[::-1]
-    planes = eave_planes(points)
-    convex = all(a * x + b * y + c >= OVERHANG - EPS
+    planes = eave_planes(points, overhang)
+    convex = all(a * x + b * y + c >= overhang - EPS
                  for a, b, c in planes for x, y in points)
     walls = [points] if convex else hip_wings(points)
     if not walls:
@@ -97,8 +97,8 @@ def roof_surfaces(points, elevation):
     # Each overlap is divided into planar regions at the valley lines.
     roofs = []
     for wall in walls:
-        planes = eave_planes(wall)
-        size = max(hypot(x - u, y - v) for x, y in wall for u, v in wall) + 10 * OVERHANG
+        planes = eave_planes(wall, overhang)
+        size = max(hypot(x - u, y - v) for x, y in wall for u, v in wall) + 10 * overhang
         x, y = wall[0]
         domain = rectangle(x - size, y - size, x + size, y + size)
         for plane in planes:
@@ -113,7 +113,7 @@ def roof_surfaces(points, elevation):
         expanded = []
         for wall in walls:
             (x0, y0), _, (x1, y1), _ = wall
-            expanded.append((x0 - OVERHANG, y0 - OVERHANG, x1 + OVERHANG, y1 + OVERHANG))
+            expanded.append((x0 - overhang, y0 - overhang, x1 + overhang, y1 + overhang))
         xs = sorted({x for x0, _, x1, _ in expanded for x in (x0, x1)})
         ys = sorted({y for _, y0, _, y1 in expanded for y in (y0, y1)})
         patches = []
@@ -121,7 +121,7 @@ def roof_surfaces(points, elevation):
             for y0, y1 in zip(ys, ys[1:]):
                 region = rectangle(x0, y0, x1, y1)
                 cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-                active = [eave_planes(wall) for wall, (a, b, c, d) in zip(walls, expanded)
+                active = [eave_planes(wall, overhang) for wall, (a, b, c, d) in zip(walls, expanded)
                           if a < cx < c and b < cy < d]
                 if len(active) == 1:
                     patches.extend(planes_on(region, active[0]))
@@ -137,7 +137,7 @@ def roof_surfaces(points, elevation):
                                     (clip(overlap, subtract(second, first)), second),
                                 ) if part)
 
-    slope = tan(radians(PITCH))
-    eave = elevation - OVERHANG * slope
+    slope = tan(radians(pitch))
+    eave = elevation - overhang * slope
     return [[[round(x, 4), round(y, 4), round(eave + (a * x + b * y + c) * slope, 4)]
              for x, y in face] for face, (a, b, c) in patches]
