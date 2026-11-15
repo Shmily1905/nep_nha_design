@@ -13,7 +13,7 @@ module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.11.0'
+    VERSION = '1.12.0'
     MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8
@@ -52,6 +52,14 @@ module NepNhaDesign
         close_socket(@listener) if @listener
         @listener = nil
         nil
+      end
+
+      def pin_model(token, model)
+        (@model_pins ||= {})[token] = model
+      end
+
+      def release_model_pin(token)
+        @model_pins&.delete(token)
       end
 
       private
@@ -166,6 +174,12 @@ module NepNhaDesign
         params = request.fetch('params', {})
         raise RPCError.new(-32602, 'Expected named parameters') unless params.is_a?(Hash)
 
+        if request.key?('model_guard')
+          expected = @model_pins&.fetch(request['model_guard'], nil)
+          unless expected && Sketchup.active_model == expected && !expected.active_path
+            raise RPCError.new(-32001, 'Model hoặc vùng chỉnh sửa đã đổi. Hãy gửi lại yêu cầu ở model đích.')
+          end
+        end
         result = dispatch(request['method'], params)
         JSON.generate(jsonrpc: '2.0', id: id, result: result) + "\n"
       rescue JSON::ParserError

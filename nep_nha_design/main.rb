@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.11.0'
+    VERSION = '1.12.0'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -197,6 +197,7 @@ module NepNhaDesign
         # Keep plan and reference picking on separate callback names. This
         # avoids role arguments being misrouted by SketchUp's HtmlDialog.
         @chat_dialog.add_action_callback('nep_nha_pick_plan') { |_context| pick_attachment('plan') }
+        @chat_dialog.add_action_callback('nep_nha_pick_geometry') { |_context| pick_attachment('geometry') }
         @chat_dialog.add_action_callback('nep_nha_render_watch') do |_context, enabled|
           render_watch(enabled == true)
         end
@@ -310,7 +311,7 @@ module NepNhaDesign
       def pick_attachment(role)
         is_plan = role == 'plan'
         filter = is_plan ? 'Mặt bằng|*.pdf;*.png;*.jpg;*.jpeg;*.webp||' : 'Ảnh|*.png;*.jpg;*.jpeg;*.webp||'
-        title = is_plan ? 'Chọn mặt bằng' : 'Chọn ảnh tham chiếu'
+        title = { 'plan' => 'Chọn mặt bằng', 'geometry' => 'Chọn ảnh mẫu dựng hình' }.fetch(role, 'Chọn ảnh tham chiếu')
         path = UI.openpanel(title, '', filter)
         return unless path
 
@@ -320,7 +321,7 @@ module NepNhaDesign
           message = if is_plan
                       'Mặt bằng hỗ trợ PDF, PNG, JPG, JPEG hoặc WebP.'
                     else
-                      'Ảnh tham chiếu chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
+                      'Ảnh chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP.'
                     end
           UI.messagebox(message)
           return
@@ -362,7 +363,14 @@ module NepNhaDesign
           payload[:prompt] = "#{prompt}\n#{@render_source[:legend]}"
         end
         model = Sketchup.active_model
-        if request['auto_exterior'] == true
+        if request['image_geometry'] == true && !payload[:action] && !draft
+          raise ArgumentError, 'Hãy mở một model SketchUp để dựng hình.' unless model
+          raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
+
+          payload[:action] = 'image_geometry'
+          payload[:model_guard] = SecureRandom.hex(16)
+          Bridge.pin_model(payload[:model_guard], model)
+        elsif request['auto_exterior'] == true
           raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
 
           payload[:action] = 'auto_exterior'
@@ -379,6 +387,7 @@ module NepNhaDesign
             next
           end
           UI.stop_timer(timer)
+          Bridge.release_model_pin(payload[:model_guard]) if payload[:model_guard]
           @chat_busy = false
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
@@ -399,7 +408,9 @@ module NepNhaDesign
               result['error'] = "Không dựng được nhà: #{e.message}"
             end
           end
-          @thread_id = result['thread_id'] if result['ok'] && result['thread_id'] && !payload[:action]
+          if result['ok'] && result['thread_id'] && [nil, 'image_geometry'].include?(payload[:action])
+            @thread_id = result['thread_id']
+          end
           result['exterior'] = true if payload[:action] == 'auto_exterior'
           result['draft_skill'] = draft if result['ok']
           send_to_chat(result)

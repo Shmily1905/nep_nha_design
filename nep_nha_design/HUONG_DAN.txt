@@ -1,9 +1,18 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.11.0
+Phiên bản 1.12.0
 
 Large Tool Set
 - Xem 04-sketchup-large-tool-set.md trong kho skill để tra công cụ, phím thao tác
   và quy trình phối hợp hình học để dựng khối trong SketchUp.
+
+Ảnh mẫu dựng hình
+- Bấm “Ảnh mẫu dựng hình” và thêm tối đa 5 ảnh của cùng đối tượng. Có thể thêm
+  hình chiếu khác hoặc mặt bằng để xác định các chiều bị che trong ảnh phối cảnh.
+- Nhập kích thước thật và hai đầu mốc nếu có, rồi bấm Gửi. Để trống nội dung và
+  bấm Gửi sẽ dựng theo tỷ lệ tương đối nếu ảnh đủ rõ. Trợ lý ghi kích thước quy
+  ước và các phần ước lượng. Nếu cần đúng số đo nhưng thiếu mốc, trợ lý sẽ hỏi.
+- Trợ lý tự gọi MCP để tạo nhóm SketchUp có thể chỉnh sửa. “Ảnh tham chiếu”
+  vẫn dùng cho phong cách, vật liệu và ánh sáng.
 
 Mặt bằng PDF và cửa
 - Đính kèm mặt bằng PDF hoặc ảnh. Trợ lý tự dựng sàn, tường bao và tường ngăn,

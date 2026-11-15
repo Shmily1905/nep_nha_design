@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.11.0">v1.11.0</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.12.0">v1.12.0</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -91,6 +91,7 @@
     <textarea id="prompt" placeholder="Ví dụ: Kiểm tra model hiện tại giúp tôi"></textarea>
     <div class="composer">
       <button type="button" class="link" id="pickPlan">Mặt bằng / PDF</button>
+      <button type="button" class="link" id="pickGeometry" title="Thêm ảnh làm nguồn hình khối và tỷ lệ">Ảnh mẫu dựng hình</button>
       <button type="button" class="link" id="pickReference">Ảnh tham chiếu</button>
       <button type="button" class="link" id="readWall" title="Đọc tường đang chọn trong SketchUp">Đọc tường</button>
       <details id="skillMenu"><summary>Skill</summary><div>
@@ -285,6 +286,7 @@
       function scheduleExterior() {
         clearTimeout(autoTimer);
         if (busy || !authReady || exteriorSent ||
+            attachments.some(file => file.role === 'geometry') ||
             !attachments.some(file => file.role === 'plan')) return;
         autoTimer = setTimeout(() => submit({auto_exterior:true}), 850);
       }
@@ -354,6 +356,7 @@
       document.getElementById('openGemini').onclick = () => window.sketchup.nep_nha_render_web('gemini');
 
       const renderReferencePicker = document.getElementById('pickRenderReference');
+      const geometryPicker = document.getElementById('pickGeometry');
       const renderReferenceStatus = document.getElementById('renderReferenceStatus');
       function renderAttachments() {
         document.getElementById('pdfPageRow').hidden = !attachments.some(
@@ -368,13 +371,15 @@
           ? `${references.length}/5 ảnh · Dùng chung với danh sách ảnh tham chiếu trong chat.`
           : 'Chưa có ảnh tham chiếu. Prompt sẽ dựa vào ảnh khối thô và ghi chú.';
         renderReferencePicker.disabled = references.length >= 5;
+        geometryPicker.disabled = attachments.filter(file => file.role === 'geometry').length >= 5;
       }
       function attachmentChip(file) {
         const chip = document.createElement('div');
         chip.className = 'attachment';
         const name = document.createElement('span');
         name.className = 'attachment-name';
-        name.textContent = `${file.role === 'plan' ? 'Mặt bằng · ' : ''}${file.name}`;
+        const prefix = {plan: 'Mặt bằng · ', geometry: 'Dựng hình · '};
+        name.textContent = `${prefix[file.role] || ''}${file.name}`;
         name.title = file.name;
         chip.appendChild(name);
         const button = document.createElement('button');
@@ -413,6 +418,9 @@
       }
       document.getElementById('pickPlan').onclick = () => {
         if (!busy) callPicker('nep_nha_pick_plan', 'plan');
+      };
+      geometryPicker.onclick = () => {
+        if (!busy) callPicker('nep_nha_pick_geometry', 'geometry');
       };
       document.getElementById('pickReference').onclick = renderReferencePicker.onclick = () => {
         if (!busy && attachments.filter(file => file.role === 'reference').length < 5)
@@ -463,10 +471,11 @@
       function submit(options = {}) {
         const notes = prompt.value.trim();
         const hasPlan = attachments.some(file => file.role === 'plan');
-        const exterior = !options.render && hasPlan &&
+        const geometry = !options.render && attachments.some(file => file.role === 'geometry');
+        const exterior = !options.render && !geometry && hasPlan &&
           (options.auto_exterior === true || exteriorPending || !exteriorSent);
         const text = options.render ? (document.getElementById('renderNotes').value.trim() || 'Phân tích và viết prompt render.') :
-          (notes || (exterior ? 'Dựng toàn bộ nhà theo mặt bằng.' : ''));
+          (notes || (geometry ? 'Dựng hình khối theo ảnh mẫu.' : exterior ? 'Dựng toàn bộ nhà theo mặt bằng.' : ''));
         if (!text || busy) return;
         if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
         let pdf_pages;
@@ -489,8 +498,14 @@
         if (!options.render) prompt.value = '';
         busy = true; send.disabled = model.disabled = pdfPages.disabled = true;
         renderControls();
-        const wait = add(exterior ? 'Đang đọc mặt bằng và dựng nhà…' : 'Đang chờ ChatGPT phản hồi…', 'assistant thinking'); wait.id = 'waiting';
-        window.sketchup.nep_nha_send(JSON.stringify({prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text, model:model.value, fast:fast.checked, images, pdf_pages, ...options, auto_exterior: exterior}));
+        const wait = add(geometry ? 'Đang phân tích hình học ảnh mẫu…' :
+          exterior ? 'Đang đọc mặt bằng và dựng nhà…' : 'Đang chờ ChatGPT phản hồi…', 'assistant thinking');
+        wait.id = 'waiting';
+        window.sketchup.nep_nha_send(JSON.stringify({
+          prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text,
+          model:model.value, fast:fast.checked, images, pdf_pages, ...options,
+          auto_exterior:exterior, image_geometry:geometry
+        }));
       }
 
       window.NepNhaChat = {

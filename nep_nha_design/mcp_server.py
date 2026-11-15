@@ -19,6 +19,7 @@ HOST = "127.0.0.1"
 PORT = 9876
 MAX_IMAGE = 4 * 1024 * 1024
 MAX_REPLY = 6 * 1024 * 1024
+MODEL_GUARD: str | None = None
 mcp = FastMCP("Nếp Nhà Design")
 
 ImageSize = Annotated[int, Field(ge=64, le=1600, strict=True)]
@@ -40,6 +41,8 @@ async def rpc(method: str, **params: Any) -> dict[str, Any]:
         "method": method,
         "params": params,
     }
+    if MODEL_GUARD:
+        request["model_guard"] = MODEL_GUARD
     writer = None
     sent = False
     try:
@@ -487,9 +490,13 @@ async def build_model(
 
 
 def main() -> None:
+    global MODEL_GUARD
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ping", action="store_true", help="Check the bridge without an MCP client.")
+    parser.add_argument("--model-guard", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    MODEL_GUARD = args.model_guard
     if args.ping:
         try:
             print(json.dumps(asyncio.run(ping_sketchup()), ensure_ascii=False, indent=2))
