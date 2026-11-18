@@ -87,10 +87,11 @@ module NepNhaDesign
         name = params['name']
         scale = params['scale_basis']
         solids = params['solids']
+        plan_build = params['plan_levels'] == true
         unless id.is_a?(String) && id.match?(/\A[a-zA-Z0-9_-]{1,64}\z/) &&
                name.is_a?(String) && name.length.between?(1, 100) &&
                scale.is_a?(String) && scale.strip.length.between?(1, 500) &&
-               solids.is_a?(Array) && solids.length.between?(1, 200)
+               solids.is_a?(Array) && solids.length.between?(1, plan_build ? 1200 : 200)
           raise RPCError.new(-32602, 'Invalid build ID, name, scale basis or solid count')
         end
 
@@ -107,7 +108,7 @@ module NepNhaDesign
 
         solids.each_with_index { |solid, index| validate_solid(solid, index + 1) }
         openings = params.fetch('openings', [])
-        unless openings.is_a?(Array) && openings.length <= 100
+        unless openings.is_a?(Array) && openings.length <= (plan_build ? 300 : 100)
           raise RPCError.new(-32602, 'Invalid openings list')
         end
         openings.each { |opening| validate_opening(opening, solids) }
@@ -120,18 +121,27 @@ module NepNhaDesign
           palette = {}
           categories = {}
           labels = {
-            'roof' => 'Mái', 'wall' => 'Tường', 'floor' => 'Sàn', 'door' => 'Cửa đi',
-            'window' => 'Cửa sổ', 'planter' => 'Bồn cây'
+            'roof' => 'Mái', 'wall' => params['plan_levels'] ? 'Tường và cột' : 'Tường',
+            'column' => 'Cột', 'floor' => 'Sàn', 'door' => 'Cửa đi', 'window' => 'Cửa sổ',
+            'planter' => 'Bồn cây', 'railing' => 'Lan can', 'water' => 'Mặt nước',
+            'tree' => 'Cây', 'garden' => 'Sân vườn'
           }
+          levels = {}
+          category_parent = lambda do |level, category|
+            parent = root
+            if level
+              parent = levels[level] ||= root.entities.add_group.tap { |item| item.name = level }
+            end
+            category = 'wall' if category == 'column' && params['plan_levels']
+            return parent unless labels.key?(category)
+
+            categories[[level, category]] ||= parent.entities.add_group.tap { |item| item.name = labels.fetch(category) }
+          end
           parents = {}
           groups = Array.new(solids.length)
           # Build every wall before making any cuts or inserting components.
           add_solid = lambda do |solid, index|
-            category = solid['category']
-            parent = root
-            if labels.key?(category)
-              parent = categories[category] ||= root.entities.add_group.tap { |item| item.name = labels.fetch(category) }
-            end
+            parent = category_parent.call(solid['level'], solid['category'])
             parents[index] = parent
             groups[index] = extrude_solid(parent.entities, solid)
           end
@@ -149,20 +159,33 @@ module NepNhaDesign
             wall = solids.fetch(opening.fetch('wall_index'))
             kind = opening.fetch('kind', 'door')
             if params['fit_openings'] == true
-              category = kind == 'door' ? 'door' : 'window'
-              parent = categories[category] ||= root.entities.add_group.tap { |item| item.name = labels.fetch(category) }
+              parent = category_parent.call(wall['level'], kind)
+              if opening.key?('frame_count')
+                add_framed_opening(model, parent.entities, wall, opening, palette)
+                next
+              end
               add_opening_panel(model, parent.entities, wall, opening, palette)
             end
             next unless kind == 'door' && opening.fetch('height_mm') >= 2600
 
-            parent = categories['window'] ||= root.entities.add_group.tap { |item| item.name = labels.fetch('window') }
+            parent = category_parent.call(wall['level'], 'window')
             add_opening_glass(model, parent.entities, wall, opening, palette)
           end
           if params['hip_roof']
             roof = root.entities.add_group
-            roof.name = 'Mái hông'
+            roof.name = params['hip_roof'].fetch('name', 'Mái hông')
             roof.material = solid_material(model, { 'hex_color' => '#A94F3D', 'material_key' => 'Mái ngói' }, palette)
             add_hip_roof(roof.entities, params['hip_roof'])
+          elsif params['roof_faces']
+            roof = root.entities.add_group
+            roof.name = params['roof_faces'].fetch('name')
+            roof.material = solid_material(model, { 'hex_color' => '#A94F3D', 'material_key' => 'Mái' }, palette)
+            params['roof_faces'].fetch('faces_mm').each do |polygon|
+              face = roof.entities.add_face(polygon.map { |point| Geom::Point3d.new(point.map(&:mm)) })
+              raise ArgumentError, 'Không tạo được mặt mái.' unless face
+
+              face.reverse! if face.normal.z < 0
+            end
           end
           build_summary(root, id, scale, true)
         end
@@ -290,6 +313,62 @@ module NepNhaDesign
         extrude_solid(entities, panel).material = solid_material(model, panel, palette)
       end
 
+      def add_framed_opening(model, entities, wall, opening, palette)
+        door = opening.fetch('kind', 'door') == 'door'
+        height = opening.fetch('height_mm')
+        base = wall.fetch('base_mm') + opening.fetch('sill_mm', 0)
+        a, b = opening.values_at('start_mm', 'end_mm')
+        width = Math.hypot(b[0] - a[0], b[1] - a[1])
+        frame_count = opening.fetch('frame_count')
+        leaf_counts = opening.fetch('leaves_per_frame')
+        depth = opening.fetch('wall_thickness_mm')
+        frame_width = width / frame_count
+        trim = [frame_width * 0.08, 50, height * 0.08].min
+        transom = door && height >= 2600
+        group = entities.add_group
+        group.name = door ? 'Bộ cửa đi' : 'Bộ cửa sổ'
+        profile = { 'hex_color' => '#564A43', 'material_key' => 'Khung cửa' }
+        glass = { 'hex_color' => '#77BDD6', 'material_key' => 'Kính cửa', 'opacity' => 0.45 }
+        panel = door ? { 'hex_color' => '#8C6248', 'material_key' => 'Gỗ cửa' } : glass
+        add_part = lambda do |parent, name, x0, x1, z0, z1, thickness, finish|
+          span = opening.merge('start_mm' => a.zip(b).map { |u, v| u + (v - u) * x0 / width },
+                               'end_mm' => a.zip(b).map { |u, v| u + (v - u) * x1 / width })
+          solid = finish.merge('name' => name, 'footprint_mm' => opening_polygon(span, thickness),
+                               'base_mm' => base + z0, 'height_mm' => z1 - z0)
+          extrude_solid(parent, solid).material = solid_material(model, solid, palette)
+        end
+        leaf_counts.each_with_index do |count, index|
+          left = frame_width * index
+          right = frame_width * (index + 1)
+          frame = group.entities.add_group
+          frame.name = "Khung bao #{index + 1}"
+          frame_depth = [depth, 80].min
+          low = door ? 0 : trim
+          high = transom ? 2400 - trim : height - trim
+          add_part.call(frame.entities, 'Đố trái', left, left + trim, 0, height, frame_depth, profile)
+          add_part.call(frame.entities, 'Đố phải', right - trim, right, 0, height, frame_depth, profile)
+          add_part.call(frame.entities, 'Đố trên', left + trim, right - trim, height - trim, height, frame_depth, profile)
+          unless door
+            add_part.call(frame.entities, 'Đố dưới', left + trim, right - trim, 0, low, frame_depth, profile)
+          end
+          if transom
+            add_part.call(frame.entities, 'Đố ngang ô kính', left + trim, right - trim, high, 2400, frame_depth, profile)
+            add_part.call(frame.entities, 'Ô kính cố định', left + trim, right - trim, 2400, height - trim, 10, glass)
+          end
+          if count.zero?
+            add_part.call(frame.entities, 'Kính cố định', left + trim, right - trim, low, high, 10, glass)
+          else
+            leaf_width = (frame_width - 2 * trim) / count
+            gap = [3, leaf_width * 0.08].min
+            count.times do |leaf|
+              start = left + trim + leaf_width * leaf
+              add_part.call(frame.entities, "Cánh #{leaf + 1}", start + gap, start + leaf_width - gap,
+                            low + 3, high - 3, door ? [depth, 40].min : 10, panel)
+            end
+          end
+        end
+      end
+
       def add_opening_glass(model, entities, wall, opening, palette)
         height = opening.fetch('height_mm')
         return unless opening.fetch('kind', 'door') == 'door' && height >= 2600
@@ -314,7 +393,14 @@ module NepNhaDesign
           height = opening['height_mm']
           depth = opening['wall_thickness_mm']
           kind = opening.fetch('kind', 'door')
+          frames = opening['frame_count']
+          leaves = opening['leaves_per_frame']
+          valid_frames = !opening.key?('frame_count') ||
+                         (frames.is_a?(Integer) && frames.between?(1, 12) &&
+                          leaves.is_a?(Array) && leaves.length == frames &&
+                          leaves.all? { |count| count.is_a?(Integer) && count.between?(0, 12) })
           if wall && wall['category'] == 'wall' &&
+             valid_frames &&
              points.all? { |point| point.is_a?(Array) && point.length == 2 &&
                point.all? { |value| value.is_a?(Numeric) && value.between?(-1_000_000, 1_000_000) } } &&
              Math.hypot(points[0][0] - points[1][0], points[0][1] - points[1][1]) >= 50 &&

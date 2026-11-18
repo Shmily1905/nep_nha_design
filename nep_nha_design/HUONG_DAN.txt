@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.12.0
+Phiên bản 1.13.0
 
 Large Tool Set
 - Xem 04-sketchup-large-tool-set.md trong kho skill để tra công cụ, phím thao tác
@@ -14,15 +14,21 @@ Large Tool Set
 - Trợ lý tự gọi MCP để tạo nhóm SketchUp có thể chỉnh sửa. “Ảnh tham chiếu”
   vẫn dùng cho phong cách, vật liệu và ánh sáng.
 
-Mặt bằng PDF và cửa
-- Đính kèm mặt bằng PDF hoặc ảnh. Trợ lý tự dựng sàn, tường bao và tường ngăn,
-  khoét ô, lắp cửa đi, cửa sổ và dựng mái hông. Ảnh tham chiếu là tùy chọn.
-  Chiều cao tường mặc định 4200 mm khi bản vẽ không ghi. PDF tối đa 100 MB. Mặc định đọc cả PDF đến 10 trang.
-  Với PDF dài hơn, chọn các trang cần dựng trong mục Trang PDF rồi gửi lại.
-- Nếu thiếu kích thước, trả lời ngay trong chat. Với mặt bằng dạng ảnh, nhắn
-  một kích thước thật kèm hai đầu mốc nếu bản vẽ chưa ghi rõ.
-- Mái tự động lấy mặt ngang đỉnh tường bao, dốc 30°, đua 500 mm, diềm 150 mm.
-  Hỗ trợ đường bao lồi và chữ L vuông góc. Cửa được dựng dạng cánh/kính đơn giản.
+Mặt bằng PDF, cửa và sân vườn
+- Đính kèm mặt bằng PDF hoặc ảnh. Trợ lý đọc các tầng và hỏi chiều cao
+  từng tầng, độ dốc và độ vươn mái. Trả lời trong chat. Bổ sung một số đo
+  thật cùng hai đầu mốc nếu bản vẽ chưa có đủ kích thước.
+- Nhà một tầng dựng đủ nhà và mái trong cùng một lượt. Nhà nhiều tầng dựng
+  từng tầng thành nhóm riêng và hỏi bước tiếp theo. Mặt đặt mái mặc định
+  theo đường bao ngoài của tường tầng sát mái, ở cao độ đỉnh tường.
+- Dải tô xám/đen là dấu hiệu nhận diện tường. Các cột tô đen nằm chung
+  block với tường của tầng. Số khung bao, cánh cửa và ô kính theo ký hiệu
+  trên mặt bằng hoặc bảng thống kê cửa.
+- Ban công và sân thượng có lan can theo mép hở. Có thể chỉ định lan can
+  kim loại, kính hoặc xây. Trợ lý bố trí cây theo vị trí ký hiệu, phân biệt
+  mặt nước với nền lát, sỏi và đất, và thể hiện cây dạng khối theo phong cách.
+- PDF tối đa 100 MB. Mặc định đọc cả PDF đến 10 trang. Với PDF dài hơn,
+  chọn các trang cần dựng trong mục Trang PDF rồi gửi lại.
 - Khi dựng chi tiết, trợ lý tạo tường rồi dùng Solid Tools đục ô cửa. Cửa đi cao
   2200, 2400, 2600, 2700 hoặc 2800 mm. Ba mức cao từ 2600 mm có kính cố định
   trên cao độ 2400 mm tính từ chân tường. Thao tác đục cần SketchUp hỗ trợ Solid Tools.

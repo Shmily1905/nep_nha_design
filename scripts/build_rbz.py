@@ -22,6 +22,7 @@ PACKAGE_FILES = [
     "Montserrat-OFL.txt",
     "main.rb",
     "mcp_server.py",
+    "plan_build.py",
     "requirements.txt",
     "render_prompt.txt",
     "render_scene.rb",

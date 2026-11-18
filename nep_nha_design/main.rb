@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.12.0'
+    VERSION = '1.13.0'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -363,6 +363,9 @@ module NepNhaDesign
           payload[:prompt] = "#{prompt}\n#{@render_source[:legend]}"
         end
         model = Sketchup.active_model
+        if @plan_model == model && @plan_context && !payload[:action] && !draft
+          payload[:plan_context] = @plan_context
+        end
         if request['image_geometry'] == true && !payload[:action] && !draft
           raise ArgumentError, 'Hãy mở một model SketchUp để dựng hình.' unless model
           raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
@@ -375,6 +378,7 @@ module NepNhaDesign
 
           payload[:action] = 'auto_exterior'
           payload[:thread_id] = nil
+          payload[:review_floors] = request['review_floors']
         end
         dialog = @chat_dialog
         @chat_busy = true
@@ -392,17 +396,26 @@ module NepNhaDesign
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
           build = result.delete('exterior_build')
+          plan_context = result.delete('plan_context')
           if build
             begin
               unless Sketchup.active_model == model && !model.active_path
                 raise ArgumentError, 'Model hoặc vùng chỉnh sửa đã đổi. Hãy gửi lại yêu cầu.'
               end
 
-              Bridge.build_model(model, build)
-              roof = build.fetch('hip_roof')
-              walls, floors = build.fetch('solids').partition { |solid| solid['category'] == 'wall' }
-              summary = "Đã dựng #{floors.length} sàn, #{walls.length} đoạn tường, lắp #{build['openings'].length} ô cửa và dựng mái hông dốc #{roof['pitch']}°, đua #{roof['overhang_mm']} mm."
-              result['text'] = [summary, result['text']].reject(&:empty?).join("\n")
+              built = Bridge.build_model(model, build)
+              @plan_model = model
+              @plan_context = plan_context.merge('group_id' => built.fetch(:persistent_id))
+              names = plan_context.fetch('levels').map { |level| level.fetch('name') }.join(', ')
+              summary = "Đã dựng #{names} và lắp #{build.fetch('openings').length} bộ cửa."
+              roof = plan_context.fetch('roof')
+              if plan_context['roof_deferred']
+                next_step = 'Bạn muốn tôi dựng mái theo thông số đã chốt hay chỉnh phần nào trước?'
+                result['text'] = [summary, result['text'], next_step].reject(&:empty?).join("\n")
+              else
+                summary += " Mái dốc #{roof.fetch('pitch_deg')}°, vươn #{roof.fetch('overhang_mm')} mm."
+                result['text'] = [summary, result['text']].reject(&:empty?).join("\n")
+              end
             rescue StandardError => e
               result['ok'] = false
               result['error'] = "Không dựng được nhà: #{e.message}"
@@ -549,6 +562,7 @@ module NepNhaDesign
 
       def reset_chat
         @thread_id = nil
+        @plan_model = @plan_context = nil
         send_to_chat(ok: true, reset: true)
       end
 

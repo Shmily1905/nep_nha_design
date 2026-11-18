@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.12.0">v1.12.0</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.13.0">v1.13.0</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -283,10 +283,17 @@
       let exteriorPending = false;
       let exteriorSent = false;
       let exteriorNotes = [];
+      let reviewedFloors = null;
+      let reviewedPages = '';
+      function resetPlanReview() {
+        exteriorPending = exteriorSent = false;
+        exteriorNotes = [];
+        reviewedFloors = null;
+        reviewedPages = '';
+      }
       function scheduleExterior() {
         clearTimeout(autoTimer);
         if (busy || !authReady || exteriorSent ||
-            attachments.some(file => file.role === 'geometry') ||
             !attachments.some(file => file.role === 'plan')) return;
         autoTimer = setTimeout(() => submit({auto_exterior:true}), 850);
       }
@@ -391,7 +398,7 @@
           if (busy) return;
           attachments = attachments.filter(item => item !== file);
           if (file.role === 'reference') clearRenderPrompt();
-          if (file.role === 'plan') { exteriorPending = false; exteriorSent = false; exteriorNotes = []; }
+          if (file.role === 'plan') resetPlanReview();
           renderAttachments();
           scheduleExterior();
         });
@@ -471,7 +478,7 @@
       function submit(options = {}) {
         const notes = prompt.value.trim();
         const hasPlan = attachments.some(file => file.role === 'plan');
-        const geometry = !options.render && attachments.some(file => file.role === 'geometry');
+        const geometry = !options.render && !hasPlan && attachments.some(file => file.role === 'geometry');
         const exterior = !options.render && !geometry && hasPlan &&
           (options.auto_exterior === true || exteriorPending || !exteriorSent);
         const text = options.render ? (document.getElementById('renderNotes').value.trim() || 'Phân tích và viết prompt render.') :
@@ -486,12 +493,21 @@
           return;
         }
         clearTimeout(autoTimer);
+        if (exterior && reviewedFloors && reviewedPages !== JSON.stringify(pdf_pages)) {
+          resetPlanReview();
+        }
+        if (exterior && reviewedFloors && !notes) {
+          add('Nhập thông số hoặc câu trả lời cho các mục trợ lý vừa hỏi.', 'assistant');
+          return;
+        }
         if (exterior) {
           exteriorSent = true;
           exteriorPending = true;
           if (notes && exteriorNotes.at(-1) !== notes) exteriorNotes.push(notes);
+          reviewedPages = JSON.stringify(pdf_pages);
         }
-        const files = options.render ? attachments.filter(file => file.role === 'reference') : attachments;
+        const files = options.render ? attachments.filter(file => file.role === 'reference') :
+          attachments.filter(file => file.role !== 'geometry' || geometry);
         const images = files.map(({role, path, purpose}) => ({role, path, purpose}));
         const names = files.map(file => file.name);
         add([text, ...names].join('\n'), 'user');
@@ -499,12 +515,13 @@
         busy = true; send.disabled = model.disabled = pdfPages.disabled = true;
         renderControls();
         const wait = add(geometry ? 'Đang phân tích hình học ảnh mẫu…' :
-          exterior ? 'Đang đọc mặt bằng và dựng nhà…' : 'Đang chờ ChatGPT phản hồi…', 'assistant thinking');
+          exterior ? (reviewedFloors ? 'Đang đối chiếu thông số và dựng hình…' : 'Đang đọc các tầng trên mặt bằng…') :
+          'Đang chờ ChatGPT phản hồi…', 'assistant thinking');
         wait.id = 'waiting';
         window.sketchup.nep_nha_send(JSON.stringify({
           prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text,
           model:model.value, fast:fast.checked, images, pdf_pages, ...options,
-          auto_exterior:exterior, image_geometry:geometry
+          auto_exterior:exterior, image_geometry:geometry, review_floors:exterior ? reviewedFloors : null
         }));
       }
 
@@ -523,8 +540,7 @@
         },
         attach(file) {
           if (file.role === 'plan') {
-            exteriorPending = exteriorSent = false;
-            exteriorNotes = [];
+            resetPlanReview();
             attachments = attachments.filter(item => item.role !== 'plan');
             pdfPages.value = '';
             pdfStatus.textContent = '';
@@ -580,14 +596,14 @@
           renderControls();
           if (result.exterior && result.ok) {
             exteriorPending = !!result.needs_dimensions;
+            reviewedFloors = result.review_floors || null;
             if (!exteriorPending) exteriorNotes = [];
           }
           if (result.reset) {
             review.hidden = true;
             attachments = [];
             clearRenderPrompt();
-            exteriorPending = exteriorSent = false;
-            exteriorNotes = [];
+            resetPlanReview();
             renderAttachments();
             messages.replaceChildren(); add('Đã bắt đầu cuộc trò chuyện mới.', 'assistant');
           } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {
