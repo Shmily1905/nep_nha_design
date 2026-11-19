@@ -15,6 +15,7 @@ PACKAGE_FILES = [
     "chat.html",
     "chat_worker.py",
     "drawing_tools.rb",
+    "gemini_provider.py",
     "github_credential.py",
     "hip_roof.py",
     "logo.png",

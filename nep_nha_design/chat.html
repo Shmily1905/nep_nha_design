@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.13.3">v1.13.3</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.14.0">v1.14.0</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -141,8 +141,12 @@
       <p class="hint">Khi tạo ảnh trên web, tải PNG khối thô lên trước, thêm các ảnh tham chiếu trong danh sách này rồi dán prompt.</p>
     </details>
     <div class="actions"><button class="reset" id="reset">Cuộc trò chuyện mới</button><label>Model <select id="model"><option value="">Tự động</option></select></label><button class="send" id="send" disabled>Gửi</button></div>
-    <p class="hint" id="modelStatus"></p>
-    <label><input type="checkbox" id="fast"> Phản hồi nhanh</label>
+    <div class="render-fields">
+      <label>Tư duy <select id="effort"><option value="">Tự động</option></select></label>
+      <button class="link" type="button" id="geminiRefresh">Tải model Gemini</button>
+      <button class="link" type="button" id="geminiHelp" hidden>Cài / đăng nhập Google</button>
+    </div>
+    <p class="hint" id="modelStatus" role="status"></p>
     <details>
       <summary>Cập nhật tiện ích</summary>
       <label>Kho GitHub phát hành <input id="repository" placeholder="chủ-kho/tên-kho" spellcheck="false"></label>
@@ -171,8 +175,17 @@
       let busy = false;
       let authReady = false;
       const model = document.getElementById('model');
-      const fast = document.getElementById('fast');
+      const effort = document.getElementById('effort');
+      const geminiRefresh = document.getElementById('geminiRefresh');
+      const geminiHelp = document.getElementById('geminiHelp');
       const modelStatus = document.getElementById('modelStatus');
+      let gptModels = [];
+      let geminiModels = [];
+      let geminiReady = false;
+      const effortLabels = {minimal:'Tối thiểu', low:'Thấp', medium:'Vừa', high:'Cao',
+                            xhigh:'Rất cao', max:'Tối đa', ultra:'Ultra'};
+      const isGemini = () => model.value.startsWith('google:');
+      const modelReady = () => isGemini() ? geminiReady : authReady;
       const repository = document.getElementById('repository');
       const update = document.getElementById('update');
       const updateStatus = document.getElementById('updateStatus');
@@ -197,8 +210,6 @@
       setTheme(load('nn-theme') === 'light' ? 'light' : 'dark');
       theme.onclick = () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
       repository.value = load('nn-repository') || 'Shmily1905/nep_nha_design';
-      fast.checked = load('nn-fast') !== 'off';
-      fast.addEventListener('change', () => save('nn-fast', fast.checked ? 'on' : 'off'));
       repository.addEventListener('input', () => {
         release = '';
         update.textContent = 'Kiểm tra cập nhật';
@@ -247,8 +258,45 @@
       githubLogout.addEventListener('click', () => githubAction('github_logout'));
       model.addEventListener('change', () => {
         save('nn-model', model.value);
-        window.sketchup.nep_nha_reset();
+        refreshEffort(true);
+        send.disabled = restartRequired || busy || !modelReady();
+        scheduleExterior();
       });
+      function refreshEffort(fetch) {
+        const row = [...gptModels, ...geminiModels].find(item => item.id === model.value) ||
+          (model.value === '' ? gptModels.find(item => item.default) : null);
+        effort.replaceChildren(new Option('Tự động', ''));
+        for (const value of row?.efforts || []) {
+          if (effortLabels[value]) effort.add(new Option(effortLabels[value], value));
+        }
+        const saved = load('nn-effort:' + model.value);
+        if ([...effort.options].some(option => option.value === saved)) effort.value = saved;
+        effort.disabled = busy || effort.options.length < 2;
+        if (fetch && isGemini() && row && !row.efforts.length) {
+          window.sketchup.nep_nha_gemini_efforts(model.value);
+        }
+      }
+      function updateModelList() {
+        const selected = model.value || load('nn-model');
+        const group = (name, items) => {
+          const result = document.createElement('optgroup');
+          result.label = name;
+          for (const item of items) result.appendChild(new Option(item.label, item.id));
+          return result;
+        };
+        model.replaceChildren(new Option('GPT · Tự động', ''), group('ChatGPT', gptModels));
+        if (geminiModels.length) model.appendChild(group('Gemini · Google', geminiModels));
+        if ([...model.options].some(option => option.value === selected)) model.value = selected;
+        refreshEffort(true);
+        send.disabled = restartRequired || busy || !modelReady();
+      }
+      effort.onchange = () => save('nn-effort:' + model.value, effort.value);
+      geminiHelp.onclick = () => window.sketchup.nep_nha_gemini_help();
+      geminiRefresh.onclick = () => {
+        geminiRefresh.disabled = true;
+        modelStatus.textContent = 'Đang tải model từ Antigravity…';
+        window.sketchup.nep_nha_gemini_catalog();
+      };
 
       function add(text, role, image) {
         const item = document.createElement('div');
@@ -298,7 +346,7 @@
       }
       function scheduleExterior() {
         clearTimeout(autoTimer);
-        if (busy || restartRequired || !authReady || exteriorSent ||
+        if (busy || restartRequired || !modelReady() || exteriorSent ||
             !attachments.some(file => file.role === 'plan')) return;
         autoTimer = setTimeout(() => submit({auto_exterior:true}), 850);
       }
@@ -463,15 +511,15 @@
         openSkillReview(text.startsWith('# ') ? text : `# Quy tắc thiết kế\n\n${text}`);
       };
       document.getElementById('draftSkill').onclick = () => {
-        if (busy || !authReady || !review.hidden) return;
+        if (busy || !modelReady() || !review.hidden) return;
         skillMenu.open = false;
-        busy = true; send.disabled = model.disabled = pdfPages.disabled = true;
+        busy = true; send.disabled = model.disabled = effort.disabled = pdfPages.disabled = true;
         renderControls();
         const wait = add('Đang soạn bản nháp skill…', 'assistant thinking');
         wait.id = 'waiting';
         window.sketchup.nep_nha_send(JSON.stringify({
           prompt: prompt.value.trim() || 'Rút ra quy tắc thiết kế từ cuộc trò chuyện này.',
-          draft_skill: true, model: model.value
+          draft_skill: true, model: model.value, effort: effort.value
         }));
       };
       saveSkill.onclick = () => {
@@ -490,7 +538,7 @@
         const text = options.render ? (document.getElementById('renderNotes').value.trim() || 'Phân tích và viết prompt render.') :
           (notes || (geometry ? 'Dựng hình khối theo ảnh mẫu.' : exterior ? 'Dựng toàn bộ nhà theo mặt bằng.' : ''));
         if (!text || busy) return;
-        if (!authReady) { add('Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
+        if (!modelReady()) { add(isGemini() ? 'Hãy kết nối Antigravity trước khi gửi.' : 'Hãy đăng nhập ChatGPT trước khi gửi.', 'error'); return; }
         let pdf_pages;
         try { pdf_pages = options.render ? [] : selectedPages(); }
         catch (error) {
@@ -518,15 +566,15 @@
         const names = files.map(file => file.name);
         add([text, ...names].join('\n'), 'user');
         if (!options.render) prompt.value = '';
-        busy = true; send.disabled = model.disabled = pdfPages.disabled = true;
+        busy = true; send.disabled = model.disabled = effort.disabled = pdfPages.disabled = true;
         renderControls();
         const wait = add(geometry ? 'Đang phân tích hình học ảnh mẫu…' :
           exterior ? (reviewedFloors ? 'Đang đối chiếu thông số và dựng hình…' : 'Đang đọc các tầng trên mặt bằng…') :
-          'Đang chờ ChatGPT phản hồi…', 'assistant thinking');
+          'Đang chờ ' + (isGemini() ? 'Gemini' : 'ChatGPT') + ' phản hồi…', 'assistant thinking');
         wait.id = 'waiting';
         window.sketchup.nep_nha_send(JSON.stringify({
           prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text,
-          model:model.value, fast:fast.checked, images, pdf_pages, ...options,
+          model:model.value, effort:effort.value, images, pdf_pages, ...options,
           auto_exterior:exterior, image_geometry:geometry, review_floors:exterior ? reviewedFloors : null,
           plan_latest:exterior ? notes : null,
           pending_plan_floor:exterior ? pendingPlanFloor : null,
@@ -601,7 +649,8 @@
         receive(result) {
           const wait = document.getElementById('waiting'); if (wait) wait.remove();
           if (result.offline_skills) add('Drive đang ngoại tuyến. Đang dùng bản skill cục bộ.', 'assistant');
-          busy = false; send.disabled = restartRequired || !authReady; model.disabled = pdfPages.disabled = false;
+          busy = false; send.disabled = restartRequired || !modelReady(); model.disabled = pdfPages.disabled = false;
+          effort.disabled = effort.options.length < 2;
           renderControls();
           if (result.exterior && result.ok) {
             exteriorPending = !!result.needs_dimensions;
@@ -632,6 +681,7 @@
           } else {
             add(result.error || 'Có lỗi chưa xác định.', 'error');
             if (result.auth_required) this.auth({state:'signed_out', message:result.error});
+            if (result.google_auth_required) this.geminiCatalog(result);
           }
           prompt.focus();
           scheduleExterior();
@@ -648,16 +698,30 @@
           install.hidden = state !== 'missing';
           login.hidden = state === 'missing' || state === 'ready';
           login.disabled = state === 'working'; install.disabled = state === 'working';
-          send.disabled = busy || restartRequired || !authReady;
+          send.disabled = busy || restartRequired || !modelReady();
           scheduleExterior();
         },
         models(result) {
-          model.replaceChildren(new Option('Tự động', ''));
-          for (const item of result.models || []) model.add(new Option(item.label, item.id));
-          const previous = load('nn-model');
-          if ([...model.options].some(option => option.value === previous)) model.value = previous;
-          modelStatus.textContent = result.catalog === 'fallback' ? 'Đang dùng danh sách model dự phòng.' :
-            (result.ok ? '' : (result.error || 'Chưa lấy được danh sách model.'));
+          gptModels = result.models || [];
+          updateModelList();
+        },
+        geminiCatalog(result) {
+          geminiRefresh.disabled = false;
+          geminiHelp.hidden = result.state === 'ready';
+          geminiModels = result.models || [];
+          geminiReady = Boolean(result.ok && geminiModels.length);
+          updateModelList();
+          if (result.error) modelStatus.textContent = result.error;
+          else if (!geminiReady) modelStatus.textContent = 'Cài Antigravity CLI và đăng nhập Google để tải model.';
+          else if (!geminiModels.some(item => item.id.startsWith('google:gemini-4'))) {
+            modelStatus.textContent = 'Antigravity đã kết nối. Danh sách tài khoản hiện chưa có Gemini 4.';
+          } else modelStatus.textContent = '';
+          scheduleExterior();
+        },
+        geminiEfforts(result) {
+          const row = geminiModels.find(item => item.id === result.model);
+          if (row && result.ok) row.efforts = result.efforts || [];
+          if (row && row.id === model.value) refreshEffort(false);
         },
         updateStarted() {
           updateBusy = update.disabled = repository.disabled = true;
@@ -700,6 +764,7 @@
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
       });
       window.sketchup.nep_nha_auth_status();
+      geminiRefresh.click();
       prompt.focus();
     })();
   </script>

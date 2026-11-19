@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.13.3'
+    VERSION = '1.14.0'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -173,7 +173,7 @@ module NepNhaDesign
           return
         end
 
-        @thread_id = nil
+        @provider_threads = {}
         @render_dir = Dir.mktmpdir('nep-nha-render-')
         @render_source = @render_signature = @render_selected = nil
         @chat_dialog = UI::HtmlDialog.new(
@@ -244,6 +244,15 @@ module NepNhaDesign
         @chat_dialog.add_action_callback('nep_nha_install_codex') { |_context| install_codex }
         @chat_dialog.add_action_callback('nep_nha_models') do |_context|
           run_panel_task('models', { action: 'models', codex_path: @codex_path })
+        end
+        @chat_dialog.add_action_callback('nep_nha_gemini_catalog') do |_context|
+          run_panel_task('geminiCatalog', { action: 'gemini_catalog', agy_candidates: agy_candidates })
+        end
+        @chat_dialog.add_action_callback('nep_nha_gemini_efforts') do |_context, model|
+          run_panel_task('geminiEfforts', { action: 'gemini_efforts', agy_path: @agy_path, model: model })
+        end
+        @chat_dialog.add_action_callback('nep_nha_gemini_help') do |_context|
+          UI.openURL('https://antigravity.google/docs/install?tab=cli')
         end
         @chat_dialog.add_action_callback('nep_nha_update') do |_context, action, repository, version|
           next unless %w[check_update download_update].include?(action)
@@ -343,16 +352,25 @@ module NepNhaDesign
         end
 
         request = JSON.parse(raw)
+        model_id = request['model'].to_s
+        gemini = model_id.start_with?('google:')
+        @provider_threads ||= {}
+        provider = gemini ? 'gemini' : 'gpt'
+        thread_id = @provider_threads[provider]
         draft = request['draft_skill'] == true
-        raise ArgumentError, 'Hãy trao đổi về quy tắc thiết kế trước khi soạn skill.' if draft && !@thread_id
+        raise ArgumentError, 'Hãy trao đổi về quy tắc thiết kế trước khi soạn skill.' if draft && !thread_id
 
         prompt = request['prompt'].to_s.strip
         raise ArgumentError, 'Nội dung cần từ 1 đến 10.000 ký tự.' unless prompt.length.between?(1, 10_000)
-        executable = @codex_path
-        raise ArgumentError, 'Hãy kiểm tra trạng thái tài khoản ChatGPT trước khi gửi.' unless executable
+        if gemini
+          raise ArgumentError, 'Hãy kết nối Antigravity trước khi chọn Gemini.' unless @agy_path
+        elsif !@codex_path
+          raise ArgumentError, 'Hãy kiểm tra trạng thái tài khoản ChatGPT trước khi gửi.'
+        end
 
         payload = {
-          prompt: prompt, thread_id: @thread_id, codex_path: executable, model: request['model'].to_s,
+          prompt: prompt, thread_id: thread_id, codex_path: @codex_path, agy_path: @agy_path,
+          model: model_id, effort: request['effort'].to_s,
           python_path: background_python_path, mcp_server_path: MCP_SERVER_PATH, data_dir: DATA_DIR,
           fast: request['fast'] == true, images: request.fetch('images', []), skills_dir: skills_dir,
           local_skills_dir: local_skills_dir, draft_skill: draft,
@@ -430,7 +448,7 @@ module NepNhaDesign
             end
           end
           if result['ok'] && result['thread_id'] && [nil, 'image_geometry'].include?(payload[:action])
-            @thread_id = result['thread_id']
+            @provider_threads[provider] = result['thread_id']
           end
           result['exterior'] = true if payload[:action] == 'auto_exterior'
           result['draft_skill'] = draft if result['ok']
@@ -565,15 +583,28 @@ module NepNhaDesign
               @codex_path = result.delete('codex_path')
               result['message'] ||= result['error']
             end
+            @agy_path = result.delete('agy_path') if channel == 'geminiCatalog'
             dialog.execute_script("window.NepNhaChat.#{channel}(#{JSON.generate(result)}, #{JSON.generate(token)})")
           end
         end
       end
 
       def reset_chat
-        @thread_id = nil
+        @provider_threads = {}
         @plan_model = @plan_context = nil
         send_to_chat(ok: true, reset: true)
+      end
+
+      def agy_candidates
+        candidates = [ENV['NEP_NHA_AGY_PATH']]
+        if WINDOWS
+          local = ENV['LOCALAPPDATA'].to_s
+          candidates << File.join(local, 'agy', 'bin', 'agy.exe') unless local.empty?
+          candidates << 'agy.exe'
+        else
+          candidates.concat(['/opt/homebrew/bin/agy', '/usr/local/bin/agy', 'agy'])
+        end
+        candidates.compact.uniq
       end
 
       def codex_candidates

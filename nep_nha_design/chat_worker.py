@@ -20,6 +20,9 @@ from typing import Any
 _plan = run_path(str(Path(__file__).with_name("plan_build.py")))
 exterior_build, plan_dimensions = _plan["exterior_build"], _plan["plan_dimensions"]
 plan_omissions, PlanReplyNeedsBuild = _plan["plan_omissions"], _plan["PlanReplyNeedsBuild"]
+_gemini = run_path(str(Path(__file__).with_name("gemini_provider.py")))
+EFFORTS = _gemini["EFFORTS"]
+GeminiLoginRequired = _gemini["GeminiLoginRequired"]
 
 MAX_EVENT_LINE = 12 * 1024 * 1024
 MAX_IMAGE = 4 * 1024 * 1024
@@ -95,11 +98,15 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.13.3"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.14.0"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
-            return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
-                    for row in models["data"] if row.get("model")]
+            return [{
+                "id": row["model"], "label": row.get("displayName") or row["model"],
+                "efforts": [item["reasoningEffort"] for item in row.get("supportedReasoningEfforts", [])
+                            if item.get("reasoningEffort") in EFFORTS],
+                "default": row.get("isDefault") is True,
+            } for row in models["data"] if row.get("model")]
         except queue.Empty as exc:
             raise RuntimeError("Codex chưa trả về danh sách model.") from exc
         finally:
@@ -352,8 +359,11 @@ def codex_command(request: dict[str, Any], image_flags: list[str] | None = None)
         raise ValueError("Tên model không hợp lệ.")
     if model:
         config.extend(["--model", model])
-    if request.get("fast") is True:
-        config.extend(["-c", 'model_reasoning_effort="low"'])
+    effort = request.get("effort") or ("low" if request.get("fast") is True else "")
+    if effort:
+        if effort not in EFFORTS:
+            raise ValueError("Cấp độ tư duy không hợp lệ.")
+        config.extend(["-c", f"model_reasoning_effort={toml_string(effort)}"])
     if request.get("draft_skill") is True or request.get("action") in ("auto_exterior", "render"):
         config.extend(["-c", "mcp_servers.nep_nha_design.enabled=false"])
     config.extend(image_flags or [])
@@ -455,6 +465,8 @@ JSON khi đủ dữ liệu (tọa độ minh họa):
 
 
 def request_model(request, image_flags, full_prompt):
+    if str(request.get("model", "")).startswith("google:"):
+        return _gemini["gemini_turn"](request, image_flags, full_prompt, TURN_TIMEOUT_SECONDS)
     try:
         completed = subprocess.run(
             codex_command(request, image_flags),
@@ -603,6 +615,10 @@ def main() -> None:
                 result = {"ok": True, "models": models, "catalog": "codex"}
             except (ValueError, RuntimeError, OSError, KeyError, TypeError, json.JSONDecodeError):
                 result = {"ok": True, "models": FALLBACK_MODELS, "catalog": "fallback"}
+        elif request.get("action") == "gemini_catalog":
+            result = _gemini["gemini_catalog"](request)
+        elif request.get("action") == "gemini_efforts":
+            result = _gemini["gemini_efforts"](request)
         elif request.get("action") in {"check_update", "download_update", "auto_update", "github_status",
                                         "github_save", "github_logout"}:
             updater = run_path(str(Path(__file__).with_name("update_worker.py")))
@@ -612,6 +628,8 @@ def main() -> None:
                 result = updater["update"](request)
         else:
             result = run_turn(request)
+    except GeminiLoginRequired as exc:
+        result = {"ok": False, "state": "signed_out", "google_auth_required": True, "error": str(exc)}
     except LoginRequired as exc:
         result = {"ok": False, "auth_required": True, "error": str(exc)}
     except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:

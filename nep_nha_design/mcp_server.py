@@ -495,8 +495,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ping", action="store_true", help="Check the bridge without an MCP client.")
     parser.add_argument("--model-guard", help=argparse.SUPPRESS)
+    parser.add_argument("--disable-clear", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     MODEL_GUARD = args.model_guard
+    if args.disable_clear:
+        mcp.remove_tool("clear_scene")
     if args.ping:
         try:
             print(json.dumps(asyncio.run(ping_sketchup()), ensure_ascii=False, indent=2))
