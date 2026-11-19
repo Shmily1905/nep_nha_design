@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.14.0
+Phiên bản 1.14.1
 
 Model và mức tư duy
 - Chọn model ChatGPT hoặc Gemini trong danh sách Model. Nút “Tải model Gemini”
@@ -8,6 +8,8 @@ Model và mức tư duy
   Sau đó tải lại danh sách Model trong Nếp Nhà. Sử dụng phiên Google đã đăng nhập.
 - “Tư duy” mặc định là Tự động. Chọn mức cao hơn khi đọc bản vẽ phức tạp hoặc
   dựng nhiều chi tiết. Các mức hiển thị tùy theo model.
+- Danh sách model gần nhất được hiện ngay khi mở trợ lý. Trợ lý tự đồng bộ lại
+  Antigravity ở nền; chỉ bấm “Tải model Gemini” khi muốn làm mới thủ công.
 
 Large Tool Set
 - Xem 04-sketchup-large-tool-set.md trong kho skill để tra công cụ, phím thao tác

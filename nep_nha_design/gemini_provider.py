@@ -138,7 +138,7 @@ def open_acp(executable, cwd, timeout, tools=()):
             client = Acp(child, timeout, tools)
             client.call("initialize", {
                 "protocolVersion": 1, "clientCapabilities": {},
-                "clientInfo": {"name": "nep_nha_design", "version": "1.14.0"},
+                "clientInfo": {"name": "nep_nha_design", "version": "1.14.1"},
             })
             yield client
         finally:

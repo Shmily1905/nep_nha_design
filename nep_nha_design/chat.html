@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.14.0">v1.14.0</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.14.1">v1.14.1</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -182,6 +182,16 @@
       let gptModels = [];
       let geminiModels = [];
       let geminiReady = false;
+      let geminiRefreshing = false;
+      let geminiManualRefresh = false;
+      const initialGeminiModels = [
+        {id:'google:gemini-4-neon', label:'Gemini 4 Neon', efforts:['low','medium','high','xhigh']},
+        {id:'google:gemini-4-argon', label:'Gemini 4 Argon', efforts:[]},
+        {id:'google:gemini-4-hydrogen', label:'Gemini 4 Hydrogen', efforts:[]},
+        {id:'google:gemini-pro-orchestrator-neon', label:'Orchestrator (Neon)', efforts:[]},
+        {id:'google:gemini-pro-orchestrator-g1-pro', label:'Orchestrator (Argon)', efforts:[]},
+        {id:'google:gemini-3.8-flash', label:'Gemini 3.8 Flash', efforts:[]}
+      ];
       const effortLabels = {minimal:'Tối thiểu', low:'Thấp', medium:'Vừa', high:'Cao',
                             xhigh:'Rất cao', max:'Tối đa', ultra:'Ultra'};
       const isGemini = () => model.value.startsWith('google:');
@@ -198,6 +208,14 @@
       const githubLogout = document.getElementById('githubLogout');
       const load = key => { try { return localStorage.getItem(key) || ''; } catch (_) { return ''; } };
       const save = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
+      function loadModels(key) {
+        try {
+          const rows = JSON.parse(load(key));
+          return Array.isArray(rows) ? rows.filter(row => row && typeof row.id === 'string' &&
+            typeof row.label === 'string' && Array.isArray(row.efforts)) : [];
+        } catch (_) { return []; }
+      }
+      function saveModels(key, rows) { save(key, JSON.stringify(rows)); }
       let release = '';
       let updateBusy = false;
       const theme = document.getElementById('theme');
@@ -272,7 +290,7 @@
         const saved = load('nn-effort:' + model.value);
         if ([...effort.options].some(option => option.value === saved)) effort.value = saved;
         effort.disabled = busy || effort.options.length < 2;
-        if (fetch && isGemini() && row && !row.efforts.length) {
+        if (fetch && geminiReady && isGemini() && row && !row.efforts.length) {
           window.sketchup.nep_nha_gemini_efforts(model.value);
         }
       }
@@ -292,11 +310,17 @@
       }
       effort.onchange = () => save('nn-effort:' + model.value, effort.value);
       geminiHelp.onclick = () => window.sketchup.nep_nha_gemini_help();
-      geminiRefresh.onclick = () => {
-        geminiRefresh.disabled = true;
-        modelStatus.textContent = 'Đang tải model từ Antigravity…';
+      function refreshGemini(manual) {
+        if (geminiRefreshing) return;
+        geminiRefreshing = true;
+        geminiManualRefresh = manual;
+        if (manual) {
+          geminiRefresh.disabled = true;
+          modelStatus.textContent = 'Đang làm mới model Gemini…';
+        }
         window.sketchup.nep_nha_gemini_catalog();
-      };
+      }
+      geminiRefresh.onclick = () => refreshGemini(true);
 
       function add(text, role, image) {
         const item = document.createElement('div');
@@ -689,7 +713,6 @@
         auth(result) {
           const state = result.state || 'error';
           if (!authReady && state === 'ready') {
-            modelStatus.textContent = 'Đang lấy danh sách model…';
             window.sketchup.nep_nha_models();
           }
           authReady = state === 'ready';
@@ -703,24 +726,31 @@
         },
         models(result) {
           gptModels = result.models || [];
+          if (gptModels.length) saveModels('nn-gpt-models', gptModels);
           updateModelList();
         },
         geminiCatalog(result) {
+          const manual = geminiManualRefresh;
+          geminiRefreshing = geminiManualRefresh = false;
           geminiRefresh.disabled = false;
           geminiHelp.hidden = result.state === 'ready';
-          geminiModels = result.models || [];
-          geminiReady = Boolean(result.ok && geminiModels.length);
+          if (result.ok) {
+            geminiModels = result.models || [];
+            if (geminiModels.length) saveModels('nn-gemini-models', geminiModels);
+          }
+          geminiReady = Boolean(result.ok && (result.models || []).length);
           updateModelList();
           if (result.error) modelStatus.textContent = result.error;
           else if (!geminiReady) modelStatus.textContent = 'Cài Antigravity CLI và đăng nhập Google để tải model.';
           else if (!geminiModels.some(item => item.id.startsWith('google:gemini-4'))) {
             modelStatus.textContent = 'Antigravity đã kết nối. Danh sách tài khoản hiện chưa có Gemini 4.';
-          } else modelStatus.textContent = '';
+          } else modelStatus.textContent = manual ? 'Đã cập nhật danh sách Gemini.' : '';
           scheduleExterior();
         },
         geminiEfforts(result) {
           const row = geminiModels.find(item => item.id === result.model);
           if (row && result.ok) row.efforts = result.efforts || [];
+          if (row && result.ok) saveModels('nn-gemini-models', geminiModels);
           if (row && row.id === model.value) refreshEffort(false);
         },
         updateStarted() {
@@ -763,8 +793,12 @@
       prompt.addEventListener('keydown', event => {
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
       });
+      gptModels = loadModels('nn-gpt-models');
+      const cachedGeminiModels = loadModels('nn-gemini-models');
+      geminiModels = cachedGeminiModels.length ? cachedGeminiModels : initialGeminiModels;
+      updateModelList();
       window.sketchup.nep_nha_auth_status();
-      geminiRefresh.click();
+      setTimeout(() => refreshGemini(false), 350);
       prompt.focus();
     })();
   </script>
