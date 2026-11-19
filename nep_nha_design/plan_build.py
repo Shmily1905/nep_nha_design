@@ -11,6 +11,31 @@ from uuid import uuid4
 _roof = run_path(str(Path(__file__).with_name("hip_roof.py")))
 FLOOR = r"(?:tang\s+(?:tret|ap mai|\d+)|(?:lau|tum)\b(?:\s+\d+)?|ap mai|tret)"
 ATTIC = "tang ap mai"
+GARDEN_FINISHES = {
+    "water": ("#449FB9", "Mặt nước", 0.55),
+    "path": ("#ACA59B", "Nền lát", 1.0),
+    "wood": ("#937456", "Gỗ sân vườn", 1.0),
+    "gravel": ("#CABFB1", "Sỏi sân vườn", 1.0),
+    "planter": ("#78865A", "Bồn cây", 1.0),
+    "rock": ("#85827C", "Đá cảnh", 1.0),
+    "soil": ("#82694F", "Đất sân vườn", 1.0),
+    "grass": ("#7A9364", "Cỏ sân vườn", 1.0),
+}
+
+
+def with_finish(part, finish):
+    color, material, opacity = finish
+    specified_color = part.get("hex_color")
+    specified_material = part.get("material_key")
+    specified_opacity = part.get("opacity")
+    return {
+        **part,
+        "hex_color": specified_color if isinstance(specified_color, str)
+        and re.fullmatch(r"#[0-9a-fA-F]{6}", specified_color) else color,
+        "material_key": specified_material if isinstance(specified_material, str)
+        and 1 <= len(specified_material.strip()) <= 100 else material,
+        "opacity": specified_opacity if number(specified_opacity, 0, 1) else opacity,
+    }
 
 
 class PlanReplyNeedsBuild(ValueError):
@@ -289,7 +314,8 @@ def exterior_build(result, reviewed_floors=None, known=None, omitted=()):
             solids.append({**part, "category": "column", "level": name, "base_mm": base,
                            "height_mm": height, "hex_color": "#171717", "material_key": "Cột"})
         for part in floors:
-            solids.append(dict(part, category="floor", level=name, base_mm=part.get("base_mm", base - slab),
+            floor = with_finish(part, ("#BCB6AA", "Sàn", 1.0))
+            solids.append(dict(floor, category="floor", level=name, base_mm=part.get("base_mm", base - slab),
                                height_mm=part.get("height_mm", slab)))
         for opening in entries(level, "openings", 100):
             index = opening.get("wall_index")
@@ -310,9 +336,14 @@ def exterior_build(result, reviewed_floors=None, known=None, omitted=()):
     if roof_elevation is None:
         roof_elevation = details[-1]["base_mm"] + details[-1]["height_mm"]
     for item in entries(proposal, "garden"):
-        category = "water" if item.get("kind") == "water" else "garden"
-        defaults = dict(hex_color="#449FB9", opacity=0.55, material_key="Mặt nước") if category == "water" else {}
-        solids.append({**item, **defaults, "category": category})
+        kind = item.get("kind")
+        kind = kind if isinstance(kind, str) else ""
+        name = item.get("name")
+        if kind == "path" and isinstance(name, str) and re.search(r"\bgo\b", normalized(name)):
+            kind = "wood"
+        finish = GARDEN_FINISHES.get(kind, ("#ACA59B", "Sân vườn", 1.0))
+        category = "water" if kind == "water" else "garden"
+        solids.append(dict(with_finish(item, finish), category=category))
     for tree in entries(proposal, "trees", 100):
         solids.extend(tree_solids(tree))
     if len(solids) > 1200 or len(openings) > 300:

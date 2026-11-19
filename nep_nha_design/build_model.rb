@@ -447,20 +447,27 @@ module NepNhaDesign
       end
 
       def validate_solid(solid, index)
-        if solid.is_a?(Hash)
-          polygon = solid['footprint_mm']
-          name = solid['name']
-          color = solid['hex_color']
-          opacity = solid.fetch('opacity', 1.0)
-          key = solid['material_key']
-          return if name.is_a?(String) && name.length.between?(1, 100) && valid_footprint?(polygon) &&
-                    color.is_a?(String) && color.match?(/\A#[0-9a-fA-F]{6}\z/) &&
-                    (key.nil? || (key.is_a?(String) && key.length.between?(1, 100))) &&
-                    opacity.is_a?(Numeric) && opacity.between?(0, 1) &&
-                    solid['base_mm'].is_a?(Numeric) && solid['base_mm'].between?(-100_000, 100_000) &&
-                    solid['height_mm'].is_a?(Numeric) && solid['height_mm'].between?(1, 100_000)
+        unless solid.is_a?(Hash)
+          raise RPCError.new(-32602, "Cấu kiện số #{index} thiếu dữ liệu.")
         end
-        raise RPCError.new(-32602, "Invalid solid at position #{index}")
+
+        polygon, name, color, key, base, height = solid.values_at(
+          'footprint_mm', 'name', 'hex_color', 'material_key', 'base_mm', 'height_mm'
+        )
+        opacity = solid.fetch('opacity', 1.0)
+        errors = []
+        valid_name = name.is_a?(String) && name.length.between?(1, 100)
+        errors << 'tên cấu kiện' unless valid_name
+        errors << 'đường bao XY' unless valid_footprint?(polygon)
+        errors << 'mã màu' unless color.is_a?(String) && color.match?(/\A#[0-9a-fA-F]{6}\z/)
+        errors << 'tên vật liệu' unless key.nil? || (key.is_a?(String) && key.length.between?(1, 100))
+        errors << 'độ đục' unless opacity.is_a?(Numeric) && opacity.between?(0, 1)
+        errors << 'cao độ đáy' unless base.is_a?(Numeric) && base.between?(-100_000, 100_000)
+        errors << 'chiều cao' unless height.is_a?(Numeric) && height.between?(1, 100_000)
+        return if errors.empty?
+
+        label = valid_name ? "“#{name}” (số #{index})" : "số #{index}"
+        raise RPCError.new(-32602, "Cấu kiện #{label} có dữ liệu không hợp lệ ở #{errors.join(', ')}.")
       end
 
       def valid_footprint?(polygon)

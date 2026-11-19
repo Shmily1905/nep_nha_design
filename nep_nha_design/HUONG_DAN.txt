@@ -1,5 +1,5 @@
 NẾP NHÀ DESIGN – TRỢ LÝ CHATGPT TRONG SKETCHUP
-Phiên bản 1.13.2
+Phiên bản 1.13.3
 
 Large Tool Set
 - Xem 04-sketchup-large-tool-set.md trong kho skill để tra công cụ, phím thao tác

@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.13.2'
+    VERSION = '1.13.3'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
