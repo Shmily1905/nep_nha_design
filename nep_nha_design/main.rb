@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.13.0'
+    VERSION = '1.13.1'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -333,6 +333,10 @@ module NepNhaDesign
 
       def receive_chat(raw)
         return unless @chat_dialog
+        if @installed_version
+          send_to_chat(ok: false, error: "Đã cài v#{@installed_version}. Lưu bản vẽ và mở lại SketchUp để tiếp tục.")
+          return
+        end
         if @chat_busy
           send_to_chat(ok: false, error: 'Trợ lý đang xử lý yêu cầu trước.')
           return
@@ -379,6 +383,7 @@ module NepNhaDesign
           payload[:action] = 'auto_exterior'
           payload[:thread_id] = nil
           payload[:review_floors] = request['review_floors']
+          payload[:plan_schema] = 1
         end
         dialog = @chat_dialog
         @chat_busy = true
@@ -521,6 +526,8 @@ module NepNhaDesign
         dialog = @chat_dialog
         Thread.new { queue << run_chat_worker(payload) }
         timer = UI.start_timer(0.25, true) do
+          next if channel == 'update' && @chat_busy
+
           begin
             result = queue.pop(true)
           rescue ThreadError

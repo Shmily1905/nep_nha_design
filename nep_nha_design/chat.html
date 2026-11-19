@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.13.0">v1.13.0</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.13.1">v1.13.1</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -285,6 +285,7 @@
       let exteriorNotes = [];
       let reviewedFloors = null;
       let reviewedPages = '';
+      let restartRequired = false;
       function resetPlanReview() {
         exteriorPending = exteriorSent = false;
         exteriorNotes = [];
@@ -293,7 +294,7 @@
       }
       function scheduleExterior() {
         clearTimeout(autoTimer);
-        if (busy || !authReady || exteriorSent ||
+        if (busy || restartRequired || !authReady || exteriorSent ||
             !attachments.some(file => file.role === 'plan')) return;
         autoTimer = setTimeout(() => submit({auto_exterior:true}), 850);
       }
@@ -476,6 +477,7 @@
       document.getElementById('cancelSkill').onclick = () => { review.hidden = true; };
 
       function submit(options = {}) {
+        if (restartRequired) return;
         const notes = prompt.value.trim();
         const hasPlan = attachments.some(file => file.role === 'plan');
         const geometry = !options.render && !hasPlan && attachments.some(file => file.role === 'geometry');
@@ -592,7 +594,7 @@
         receive(result) {
           const wait = document.getElementById('waiting'); if (wait) wait.remove();
           if (result.offline_skills) add('Drive đang ngoại tuyến. Đang dùng bản skill cục bộ.', 'assistant');
-          busy = false; send.disabled = !authReady; model.disabled = pdfPages.disabled = false;
+          busy = false; send.disabled = restartRequired || !authReady; model.disabled = pdfPages.disabled = false;
           renderControls();
           if (result.exterior && result.ok) {
             exteriorPending = !!result.needs_dimensions;
@@ -637,7 +639,7 @@
           install.hidden = state !== 'missing';
           login.hidden = state === 'missing' || state === 'ready';
           login.disabled = state === 'working'; install.disabled = state === 'working';
-          send.disabled = busy || !authReady;
+          send.disabled = busy || restartRequired || !authReady;
           scheduleExterior();
         },
         models(result) {
@@ -660,6 +662,9 @@
           update.textContent = release ? 'Cập nhật lên ' + release : 'Kiểm tra cập nhật';
           updateStatus.textContent = result.message || result.error || '';
           if (result.installed) {
+            restartRequired = true;
+            send.disabled = true;
+            clearTimeout(autoTimer);
             const banner = document.getElementById('updateBanner');
             banner.textContent = updateStatus.textContent;
             banner.hidden = false;

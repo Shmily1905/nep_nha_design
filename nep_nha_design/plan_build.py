@@ -5,9 +5,57 @@ from math import cos, hypot, isfinite, sin, tau
 from pathlib import Path
 import re
 from runpy import run_path
+import unicodedata
 from uuid import uuid4
 
 _roof = run_path(str(Path(__file__).with_name("hip_roof.py")))
+FLOOR = r"(?:tang\s+(?:tret|ap mai|\d+)|(?:lau|tum)\b(?:\s+\d+)?|ap mai|tret)"
+
+
+def normalized(value):
+    value = unicodedata.normalize("NFD", value.lower().replace("đ", "d"))
+    return "".join(c for c in value if not unicodedata.combining(c))
+
+
+def floor_key(name):
+    key = " ".join(normalized(name).split())
+    return {"tret": "tang tret", "ap mai": "tang ap mai"}.get(key, key)
+
+
+def plan_dimensions(message):
+    """Recognize labelled replies even if a previous UI cannot send review state."""
+    plain = normalized(message)
+    amount = r"\s*[:=]?\s*(\d+(?:[.,]\d+)?)[ \t]*(mm\b|cm\b|m\b|do\b|°|%)?"
+
+    def convert(match, index, *, length):
+        raw, unit = match.group(index, index + 1)
+        value = float(raw.replace(",", "."))
+        if length and unit in (None, "mm", "cm", "m"):
+            return value * {None: 1, "mm": 1, "cm": 10, "m": 1000}[unit]
+        if not length and unit in (None, "do", "°"):
+            return value
+        return None
+
+    values = {"heights_mm": {}}
+    for match in re.finditer(r"\b(" + FLOOR + r")" + amount, plain):
+        # In a label such as “sàn đến sàn”, conversion also depends on slab thickness.
+        prefix = plain[plain.rfind("\n", 0, match.start()) + 1:match.start()]
+        if re.search(r"san\s+(?:den|toi)\s+san|cao do|cot\s*$", prefix):
+            continue
+        value = convert(match, 2, length=True)
+        if number(value, 1000, 30_000):
+            values["heights_mm"][floor_key(match[1])] = value
+    for key, label, limit, length in (
+        ("pitch_deg", r"(?:do\s+)?doc\s+mai", 80, False),
+        ("overhang_mm", r"(?:do\s+)?(?:vuon|dua)\s+mai", 10_000, True),
+    ):
+        for match in re.finditer(r"\b" + label + amount, plain):
+            value = convert(match, 1, length=length)
+            if number(value, 0, limit):
+                values[key] = value
+    if not values["heights_mm"]:
+        del values["heights_mm"]
+    return values
 
 
 def number(value, minimum=-100_000, maximum=100_000):
@@ -123,13 +171,43 @@ def prepare_roof(roof, highest_level, *, defer):
     return "roof_faces", dict(name=name, faces_mm=faces), geometry
 
 
-def exterior_build(result, reviewed_floors=None):
+def ask_missing(missing, known):
+    if not isinstance(missing, list) or not missing or len(missing) > 15:
+        raise ValueError("Trợ lý chưa chỉ rõ thông tin còn thiếu. Hãy gửi lại câu trả lời.")
+    questions = []
+    for item in missing:
+        if not isinstance(item, dict):
+            raise ValueError("Câu hỏi bổ sung không hợp lệ.")
+        field, name = item.get("field"), item.get("floor", "")
+        if field == "height" and isinstance(name, str) and 1 <= len(name.strip()) <= 80:
+            if floor_key(name) not in known.get("heights_mm", {}):
+                questions.append(f"Chiều cao từ sàn đến đỉnh tường của {name} là bao nhiêu mm?")
+        elif field == "attic":
+            questions.append("Phần áp mái là một tầng có tường riêng hay chỉ là mặt bằng mái?"
+                             " Nếu có tầng riêng, bạn cho tôi chiều cao từ sàn đến đỉnh tường của tầng đó.")
+        elif field == "pitch":
+            if "pitch_deg" not in known:
+                questions.append("Độ dốc mái là bao nhiêu độ?")
+        elif field == "overhang":
+            if "overhang_mm" not in known:
+                questions.append("Độ vươn mái là bao nhiêu mm?")
+        elif field in ("scale", "opening", "other"):
+            detail = item.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                questions.append(detail.strip()[:400])
+    if not questions:
+        raise ValueError("Đã nhận các thông số vừa gửi nhưng chưa lập được dữ liệu dựng. Hãy gửi lại yêu cầu dựng.")
+    return "\n".join(dict.fromkeys(questions))
+
+
+def exterior_build(result, reviewed_floors=None, known=None):
+    known = known or {}
     raw = result["text"].strip()
     fenced = re.fullmatch(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, re.IGNORECASE)
     proposal = json.loads(fenced[1] if fenced else raw)
     if not isinstance(proposal, dict):
         raise ValueError("Trợ lý chưa trả thông số dựng hợp lệ.")
-    if not reviewed_floors:
+    if not reviewed_floors and not known:
         names = proposal.get("floor_names")
         if not (isinstance(names, list) and len(names) <= 10
                 and all(isinstance(name, str) and 0 < len(name.strip()) <= 80 for name in names)):
@@ -140,11 +218,15 @@ def exterior_build(result, reviewed_floors=None):
         if isinstance(detail, str) and detail.strip():
             question += "\n" + detail.strip()[:1200]
         return dict(ok=True, text=question, needs_dimensions=True, review_floors=names or ["Chưa xác định"])
-    question = proposal.get("question")
-    if isinstance(question, str) and question.strip():
-        return dict(ok=True, text=question.strip()[:1500], needs_dimensions=True, review_floors=reviewed_floors)
+    if "missing" in proposal:
+        return dict(ok=True, text=ask_missing(proposal["missing"], known), needs_dimensions=True,
+                    review_floors=reviewed_floors or ["Chưa xác định"])
     levels = entries(proposal, "levels", 10)
-    if not levels or (reviewed_floors != ["Chưa xác định"] and len(levels) != len(reviewed_floors)):
+    floor_count_reason = proposal.get("floor_count_reason")
+    if not isinstance(floor_count_reason, str) or not floor_count_reason.strip():
+        floor_count_reason = ""
+    if not levels or (reviewed_floors and reviewed_floors != ["Chưa xác định"]
+                      and len(levels) != len(reviewed_floors) and not floor_count_reason):
         raise ValueError("Số tầng dựng chưa khớp với mặt bằng đã đọc.")
     scale = proposal.get("scale_basis")
     if not isinstance(scale, str) or not scale.strip():
@@ -154,6 +236,8 @@ def exterior_build(result, reviewed_floors=None):
     for level in levels:
         name = level.get("name")
         height = level.get("height_mm")
+        if isinstance(name, str):
+            height = known.get("heights_mm", {}).get(floor_key(name), height)
         base = level.get("base_mm", next_base)
         slab = level.get("slab_mm", 150)
         if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or not number(height, 1000, 30_000)
@@ -199,10 +283,14 @@ def exterior_build(result, reviewed_floors=None):
     if len(solids) > 1200 or len(openings) > 300:
         raise ValueError("Mặt bằng có quá nhiều cấu kiện để dựng trong một lần.")
     multi = len(levels) >= 2
-    roof_key, roof_payload, roof_context = prepare_roof(proposal.get("roof"), roof_elevation, defer=multi)
+    roof = proposal.get("roof")
+    if isinstance(roof, dict):
+        roof = {**roof, **{key: known[key] for key in ("pitch_deg", "overhang_mm") if key in known}}
+    roof_key, roof_payload, roof_context = prepare_roof(roof, roof_elevation, defer=multi)
     build = dict(build_id=uuid4().hex, name="Nhà theo mặt bằng", scale_basis=scale.strip()[:500],
                  solids=solids, openings=openings, fit_openings=True, plan_levels=True)
     if roof_key:
         build[roof_key] = roof_payload
-    return dict(ok=True, text=str(proposal.get("notes", ""))[:1800], exterior_build=build,
+    notes = "\n".join(filter(None, (str(proposal.get("notes", "")), floor_count_reason)))
+    return dict(ok=True, text=notes[:1800], exterior_build=build,
                 plan_context=dict(levels=details, roof=roof_context, roof_deferred=multi))
