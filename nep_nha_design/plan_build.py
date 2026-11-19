@@ -10,6 +10,11 @@ from uuid import uuid4
 
 _roof = run_path(str(Path(__file__).with_name("hip_roof.py")))
 FLOOR = r"(?:tang\s+(?:tret|ap mai|\d+)|(?:lau|tum)\b(?:\s+\d+)?|ap mai|tret)"
+ATTIC = "tang ap mai"
+
+
+class PlanReplyNeedsBuild(ValueError):
+    """The planner asked about an item already resolved by the user."""
 
 
 def normalized(value):
@@ -20,6 +25,26 @@ def normalized(value):
 def floor_key(name):
     key = " ".join(normalized(name).split())
     return {"tret": "tang tret", "ap mai": "tang ap mai"}.get(key, key)
+
+
+def plan_omissions(latest, reviewed, known, pending_floor, previous):
+    omitted = {ATTIC} if isinstance(previous, list) and ATTIC in previous else set()
+    latest = normalized(latest).strip()
+    if re.search(r"\b(?:dung|ve|lam)\s+(?:lai\s+)?(?:tuong\s+)?(?:tang\s+)?ap mai\b", latest) and not re.search(
+        r"\b(?:chua|khong|bo qua|de sau|tam bo)\b", latest
+    ):
+        omitted.discard(ATTIC)
+    skip = re.search(r"\b(?:chua can|khong can|chua dung|khong dung|tam bo|bo qua|de sau)\b", latest)
+    if not skip:
+        return omitted
+    if "ap mai" in latest:
+        return omitted | {ATTIC}
+    if re.search(r"\b(?:tuong|tang|phan)\s+(?:nay|do)\b", latest):
+        missing = {floor_key(name) for name in (reviewed or []) if isinstance(name, str)}
+        missing -= known.get("heights_mm", {}).keys()
+        if pending_floor == ATTIC or (not pending_floor and missing == {ATTIC}):
+            return omitted | {ATTIC}
+    return omitted
 
 
 def plan_dimensions(message):
@@ -171,20 +196,24 @@ def prepare_roof(roof, highest_level, *, defer):
     return "roof_faces", dict(name=name, faces_mm=faces), geometry
 
 
-def ask_missing(missing, known):
+def ask_missing(missing, known, omitted):
     if not isinstance(missing, list) or not missing or len(missing) > 15:
         raise ValueError("Trợ lý chưa chỉ rõ thông tin còn thiếu. Hãy gửi lại câu trả lời.")
     questions = []
+    targets = []
     for item in missing:
         if not isinstance(item, dict):
             raise ValueError("Câu hỏi bổ sung không hợp lệ.")
         field, name = item.get("field"), item.get("floor", "")
         if field == "height" and isinstance(name, str) and 1 <= len(name.strip()) <= 80:
-            if floor_key(name) not in known.get("heights_mm", {}):
+            if floor_key(name) not in known.get("heights_mm", {}) and floor_key(name) not in omitted:
                 questions.append(f"Chiều cao từ sàn đến đỉnh tường của {name} là bao nhiêu mm?")
+                targets.append(floor_key(name))
         elif field == "attic":
-            questions.append("Phần áp mái là một tầng có tường riêng hay chỉ là mặt bằng mái?"
-                             " Nếu có tầng riêng, bạn cho tôi chiều cao từ sàn đến đỉnh tường của tầng đó.")
+            if ATTIC not in omitted and ATTIC not in known.get("heights_mm", {}):
+                questions.append("Phần áp mái là một tầng có tường riêng hay chỉ là mặt bằng mái?"
+                                 " Nếu có tầng riêng, bạn cho tôi chiều cao từ sàn đến đỉnh tường của tầng đó.")
+                targets.append(ATTIC)
         elif field == "pitch":
             if "pitch_deg" not in known:
                 questions.append("Độ dốc mái là bao nhiêu độ?")
@@ -196,18 +225,19 @@ def ask_missing(missing, known):
             if isinstance(detail, str) and detail.strip():
                 questions.append(detail.strip()[:400])
     if not questions:
-        raise ValueError("Đã nhận các thông số vừa gửi nhưng chưa lập được dữ liệu dựng. Hãy gửi lại yêu cầu dựng.")
-    return "\n".join(dict.fromkeys(questions))
+        raise PlanReplyNeedsBuild("Trợ lý chưa lập được dữ liệu dựng cho phần đã chốt.")
+    pending = targets[0] if len(questions) == len(targets) and len(set(targets)) == 1 else None
+    return "\n".join(dict.fromkeys(questions)), pending
 
 
-def exterior_build(result, reviewed_floors=None, known=None):
+def exterior_build(result, reviewed_floors=None, known=None, omitted=()):
     known = known or {}
     raw = result["text"].strip()
     fenced = re.fullmatch(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, re.IGNORECASE)
     proposal = json.loads(fenced[1] if fenced else raw)
     if not isinstance(proposal, dict):
         raise ValueError("Trợ lý chưa trả thông số dựng hợp lệ.")
-    if not reviewed_floors and not known:
+    if not reviewed_floors and not known and not omitted:
         names = proposal.get("floor_names")
         if not (isinstance(names, list) and len(names) <= 10
                 and all(isinstance(name, str) and 0 < len(name.strip()) <= 80 for name in names)):
@@ -219,9 +249,14 @@ def exterior_build(result, reviewed_floors=None, known=None):
             question += "\n" + detail.strip()[:1200]
         return dict(ok=True, text=question, needs_dimensions=True, review_floors=names or ["Chưa xác định"])
     if "missing" in proposal:
-        return dict(ok=True, text=ask_missing(proposal["missing"], known), needs_dimensions=True,
-                    review_floors=reviewed_floors or ["Chưa xác định"])
+        question, pending = ask_missing(proposal["missing"], known, omitted)
+        return dict(ok=True, text=question, needs_dimensions=True, pending_plan_floor=pending,
+                    omitted_plan_floors=sorted(omitted), review_floors=reviewed_floors or ["Chưa xác định"])
     levels = entries(proposal, "levels", 10)
+    if any(isinstance(level.get("name"), str) and floor_key(level["name"]) in omitted for level in levels):
+        raise PlanReplyNeedsBuild("Dữ liệu dựng vẫn chứa phần áp mái đã yêu cầu bỏ qua.")
+    if reviewed_floors:
+        reviewed_floors = [name for name in reviewed_floors if floor_key(name) not in omitted]
     floor_count_reason = proposal.get("floor_count_reason")
     if not isinstance(floor_count_reason, str) or not floor_count_reason.strip():
         floor_count_reason = ""
@@ -291,6 +326,7 @@ def exterior_build(result, reviewed_floors=None, known=None):
                  solids=solids, openings=openings, fit_openings=True, plan_levels=True)
     if roof_key:
         build[roof_key] = roof_payload
-    notes = "\n".join(filter(None, (str(proposal.get("notes", "")), floor_count_reason)))
+    scope_note = "Đã để phần áp mái lại cho lượt sau theo yêu cầu." if ATTIC in omitted else ""
+    notes = "\n".join(filter(None, (str(proposal.get("notes", "")), floor_count_reason, scope_note)))
     return dict(ok=True, text=notes[:1800], exterior_build=build,
                 plan_context=dict(levels=details, roof=roof_context, roof_deferred=multi))

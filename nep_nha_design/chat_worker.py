@@ -19,6 +19,7 @@ from typing import Any
 
 _plan = run_path(str(Path(__file__).with_name("plan_build.py")))
 exterior_build, plan_dimensions = _plan["exterior_build"], _plan["plan_dimensions"]
+plan_omissions, PlanReplyNeedsBuild = _plan["plan_omissions"], _plan["PlanReplyNeedsBuild"]
 
 MAX_EVENT_LINE = 12 * 1024 * 1024
 MAX_IMAGE = 4 * 1024 * 1024
@@ -94,7 +95,7 @@ def list_models(executable):
                     return reply["result"]
 
         try:
-            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.13.1"}})
+            call(1, "initialize", {"clientInfo": {"name": "nep_nha_design", "version": "1.13.2"}})
             send({"method": "initialized"})
             models = call(2, "model/list", {"includeHidden": False, "limit": 100})
             return [{"id": row["model"], "label": row.get("displayName") or row["model"]}
@@ -432,6 +433,7 @@ PLAN_REVIEW = """Đây là lượt đầu khi chủ nhà tải mặt bằng. Ch�
 """
 
 PLAN_BUILD = """Dùng tất cả số liệu người dùng đã trả lời, ưu tiên giá trị cập nhật mới nhất. Các số đã trích từ tin nhắn là dữ liệu có sẵn. Nếu có mục còn thiếu, trả {"missing":[{"field":"height","floor":"tên tầng"}]} chỉ với các mục còn thiếu. Các field hợp lệ: height (kèm floor), pitch, overhang, attic (chỉ khi chưa phân biệt tầng áp mái với trang mái), scale, opening, other (ba mục cuối kèm detail hỏi cụ thể). Nếu chỉ thiếu thông tin áp mái thì chỉ gửi attic hoặc height của tầng áp mái. Không dùng mặc định chiều cao hay mái. Khi người dùng xác nhận dùng số đề xuất hoặc cho phép chọn, dùng số đó và ghi rõ. Nếu số tầng xác nhận khác danh sách đọc lần đầu, trả floor_count_reason cùng dữ liệu levels và giải thích ngắn căn cứ thay đổi. Cao độ base_mm là mặt sàn hoàn thiện; height_mm từ sàn đến đỉnh tường. Nếu người dùng cho chiều cao sàn đến sàn, trừ chiều dày sàn trên để ra chiều cao tường. Dùng sàn dày 150 mm nếu bản vẽ không ghi.
+“Chưa cần dựng”, “bỏ qua”, “để sau” là quyết định về phạm vi hiện tại. Đọc theo đối tượng vừa hỏi và loại mục người dùng đã hoãn khỏi kế hoạch dựng. Nếu đã xác định hoãn áp mái, bỏ tầng áp mái khỏi levels, lấy tường tầng sát mái trong phần đang dựng làm mốc, giữ thông số mái đã nhập, tiếp tục các tầng còn lại. Không hỏi chiều cao hoặc chi tiết của phần đã hoãn. Chỉ hỏi khi phần đang yêu cầu dựng còn thiếu dữ liệu bắt buộc. Nếu chi tiết phụ không rõ, chọn phương án có căn cứ hoặc để lại và ghi trong notes khi việc đó không làm sai phần dựng chính.
 Tường là dải được tô xám hoặc đen theo ký hiệu mặt bằng; nhận diện cột đen qua tiết diện, kích thước, lưới trục. Phân biệt đồ nội thất và nét ký hiệu. Dựng đủ tường bao và tường ngăn; cột đen chung block tường, hạn chế trùng thể tích tại mối nối. Khai mỗi đoạn tường đầy đủ, để chương trình khoét ô. Gán ô mở vào tường đúng tầng, wall_index bắt đầu từ 0 trong tầng. start_mm/end_mm là hai đầu bề rộng trên tim đoạn tường. Đọc cung mở, nét trượt, vách kính cố định và bảng thống kê để lấy đúng số khung, số cánh. leaves_per_frame ghi số cánh theo thứ tự từng khung nhìn theo chiều từ start đến end; 0 là ô cố định. Giữ quy ước cửa đi cao 2200/2400/2600/2700/2800 mm; có ô kính trên cửa từ 2600 mm. Nếu thiếu cao độ cửa, dùng bệ cửa sổ 900 mm, cao 1200 mm, cửa đi 2400 mm và nêu giả định.
 Xác định ban công và sân thượng từ cao độ, biên sàn, lối tiếp cận và ký hiệu. Vẽ sàn đúng cao độ, đặt lan can dọc mép hở cần bảo vệ, tránh cửa/lối đi và mép đã có tường chắn. Tách lan can ở mỗi góc thành đoạn. Kiểu metal, glass hoặc solid theo người dùng hoặc bản vẽ; nếu chưa rõ, dùng thanh đứng kim loại concept và ghi trong notes. base_mm của lan can theo mặt sàn thực tế.
 Đặt cây đúng tâm ký hiệu và đường kính tán theo tỷ lệ. Chỉ thêm cây ở vị trí có căn cứ hoặc được yêu cầu, chọn zen/tropical/general theo chú giải, hình ảnh và yêu cầu. Dựng hồ/ao và mặt nước theo đường bao riêng, phân biệt với sỏi, cây phủ nền và nền lát. Dùng garden cho mặt nước, đất, sỏi, lối đi, bồn và đá cảnh nếu có trên mặt bằng. Vật liệu và hình dáng theo phong cách sân vườn nhận diện được. Nêu phần còn ước lượng trong notes.
@@ -450,6 +452,31 @@ JSON khi đủ dữ liệu (tọa độ minh họa):
             "base_mm":-100,"height_mm":25}],
  "trees":[{"name":"Cây tán thấp","center_mm":[8000,2000],"radius_mm":800,"height_mm":2200,"style":"zen"}]}
 """
+
+
+def request_model(request, image_flags, full_prompt):
+    try:
+        completed = subprocess.run(
+            codex_command(request, image_flags),
+            input=full_prompt,
+            cwd=request["data_dir"],
+            creationflags=PROCESS_FLAGS,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=TURN_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("ChatGPT xử lý quá 4 phút. Hãy thử yêu cầu ngắn hơn.") from exc
+    if completed.returncode:
+        combined = f"{completed.stderr}\n{completed.stdout}".strip()
+        lowered = combined.lower()
+        if any(phrase in lowered for phrase in ("not logged in", "codex login", "authentication", "401 unauthorized")):
+            raise LoginRequired("Phiên ChatGPT cần đăng nhập lại. Hãy bấm ‘Tiếp tục với ChatGPT’.")
+        raise RuntimeError(combined[-1600:] or "Thành phần ChatGPT kết thúc bất thường.")
+    return parse_events(completed.stdout)
 
 
 def run_prepared_turn(request: dict[str, Any], directory: Path) -> dict[str, Any]:
@@ -483,12 +510,19 @@ def run_prepared_turn(request: dict[str, Any], directory: Path) -> dict[str, Any
     if exterior:
         reviewed = request.get("review_floors")
         known = plan_dimensions(prompt)
-        phase = PLAN_BUILD if reviewed or known else PLAN_REVIEW
+        latest = request.get("plan_latest") or prompt.splitlines()[-1]
+        if not isinstance(latest, str):
+            raise ValueError("Nội dung trả lời mặt bằng không hợp lệ.")
+        pending = request.get("pending_plan_floor")
+        omitted = plan_omissions(latest, reviewed, known, pending, request.get("omitted_plan_floors"))
+        phase = PLAN_BUILD if reviewed or known or omitted else PLAN_REVIEW
         full_prompt = (
             f"{PLAN_RULES}\n{phase}\n{image_roles}\n"
             f"Tầng đã đọc: {json.dumps(reviewed, ensure_ascii=False)}\n"
+            f"Tầng vừa hỏi: {json.dumps(pending, ensure_ascii=False)}\n"
+            f"Phần phải để lại: {'tầng áp mái' if omitted else 'chưa có chỉ định'}\n"
             f"Thông số đã trích từ câu trả lời: {json.dumps(known, ensure_ascii=False)}\n"
-            f"Thông tin người dùng bổ sung:\n{prompt}"
+            f"Thông tin người dùng bổ sung:\n{prompt}\nTin nhắn mới nhất: {latest}"
         )
     elif request.get("action") == "render":
         guide = Path(__file__).with_name("render_prompt.txt").read_text(encoding="utf-8")
@@ -510,28 +544,7 @@ def run_prepared_turn(request: dict[str, Any], directory: Path) -> dict[str, Any
             "Nếu chưa có quy tắc đủ rõ, trả một câu hỏi ngắn.\n"
             f"Kho hiện tại:\n{skills}\nGợi ý phạm vi từ người dùng: {prompt.strip()}"
         )
-    try:
-        completed = subprocess.run(
-            codex_command(request, image_flags),
-            input=full_prompt,
-            cwd=request["data_dir"],
-            creationflags=PROCESS_FLAGS,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=TURN_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("ChatGPT xử lý quá 4 phút. Hãy thử yêu cầu ngắn hơn.") from exc
-    if completed.returncode:
-        combined = f"{completed.stderr}\n{completed.stdout}".strip()
-        lowered = combined.lower()
-        if any(phrase in lowered for phrase in ("not logged in", "codex login", "authentication", "401 unauthorized")):
-            raise LoginRequired("Phiên ChatGPT cần đăng nhập lại. Hãy bấm ‘Tiếp tục với ChatGPT’.")
-        raise RuntimeError(combined[-1600:] or "Thành phần ChatGPT kết thúc bất thường.")
-    result = parse_events(completed.stdout)
+    result = request_model(request, image_flags, full_prompt)
     if request.get("action") == "render":
         canonical = re.search(r"^Camera: [^\n]+\n\nMaintain the exact massing geometry[^\n]+", guide, re.M)
         block = re.search(r"```[^\n]*\n([\s\S]*?)```", result["text"])
@@ -542,7 +555,16 @@ def run_prepared_turn(request: dict[str, Any], directory: Path) -> dict[str, Any
         result["text"] = result["text"][:block.start()] + "```text\n" + result["render_prompt"] + "\n```"
     if exterior:
         try:
-            plan = exterior_build(result, reviewed, known)
+            try:
+                plan = exterior_build(result, reviewed, known, omitted)
+            except PlanReplyNeedsBuild as exc:
+                correction = (
+                    f"\nPhản hồi vừa rồi không dùng được: {exc} "
+                    "Dựng các tầng trong phạm vi đã chốt. Trả levels khi đã đủ dữ liệu, "
+                    "chỉ trả missing cho phần đang dựng thực sự chưa có dữ liệu."
+                )
+                result = request_model(request, image_flags, full_prompt + correction)
+                plan = exterior_build(result, reviewed, known, omitted)
         except json.JSONDecodeError as exc:
             raise ValueError("Trợ lý chưa trả dữ liệu dựng hợp lệ. Gửi lại yêu cầu trong chat.") from exc
         if "exterior_build" in plan and request.get("plan_schema") != 1:

@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.13.1">v1.13.1</span></header>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.13.2">v1.13.2</span></header>
   <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
@@ -284,12 +284,16 @@
       let exteriorSent = false;
       let exteriorNotes = [];
       let reviewedFloors = null;
+      let pendingPlanFloor = null;
+      let omittedPlanFloors = [];
       let reviewedPages = '';
       let restartRequired = false;
       function resetPlanReview() {
         exteriorPending = exteriorSent = false;
         exteriorNotes = [];
         reviewedFloors = null;
+        pendingPlanFloor = null;
+        omittedPlanFloors = [];
         reviewedPages = '';
       }
       function scheduleExterior() {
@@ -523,7 +527,10 @@
         window.sketchup.nep_nha_send(JSON.stringify({
           prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text,
           model:model.value, fast:fast.checked, images, pdf_pages, ...options,
-          auto_exterior:exterior, image_geometry:geometry, review_floors:exterior ? reviewedFloors : null
+          auto_exterior:exterior, image_geometry:geometry, review_floors:exterior ? reviewedFloors : null,
+          plan_latest:exterior ? notes : null,
+          pending_plan_floor:exterior ? pendingPlanFloor : null,
+          omitted_plan_floors:exterior ? omittedPlanFloors : []
         }));
       }
 
@@ -599,6 +606,8 @@
           if (result.exterior && result.ok) {
             exteriorPending = !!result.needs_dimensions;
             reviewedFloors = result.review_floors || null;
+            pendingPlanFloor = result.pending_plan_floor || null;
+            omittedPlanFloors = result.omitted_plan_floors || [];
             if (!exteriorPending) exteriorNotes = [];
           }
           if (result.reset) {

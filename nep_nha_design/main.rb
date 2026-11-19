@@ -30,7 +30,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.13.1'
+    VERSION = '1.13.2'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -383,6 +383,9 @@ module NepNhaDesign
           payload[:action] = 'auto_exterior'
           payload[:thread_id] = nil
           payload[:review_floors] = request['review_floors']
+          payload[:plan_latest] = request['plan_latest']
+          payload[:pending_plan_floor] = request['pending_plan_floor']
+          payload[:omitted_plan_floors] = request['omitted_plan_floors']
           payload[:plan_schema] = 1
         end
         dialog = @chat_dialog
