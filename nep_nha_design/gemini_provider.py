@@ -138,7 +138,7 @@ def open_acp(executable, cwd, timeout, tools=()):
             client = Acp(child, timeout, tools)
             client.call("initialize", {
                 "protocolVersion": 1, "clientCapabilities": {},
-                "clientInfo": {"name": "nep_nha_design", "version": "1.14.1"},
+                "clientInfo": {"name": "nep_nha_design", "version": "1.15.0"},
             })
             yield client
         finally:
@@ -212,7 +212,7 @@ def prompt_blocks(text, image_flags):
 
 
 def gemini_turn(request, image_flags, text, timeout):
-    tool_use = request.get("action") not in ("auto_exterior", "render") and not request.get("draft_skill")
+    tool_use = request.get("action") not in ("auto_exterior", "render", "image_review") and not request.get("draft_skill")
     servers = []
     if tool_use:
         args = [request["mcp_server_path"], "--disable-clear"]

@@ -18,6 +18,8 @@ PACKAGE_FILES = [
     "gemini_provider.py",
     "github_credential.py",
     "hip_roof.py",
+    "image_review.py",
+    "image_review.rb",
     "logo.png",
     "Montserrat.ttf",
     "Montserrat-OFL.txt",

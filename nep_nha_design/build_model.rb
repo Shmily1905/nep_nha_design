@@ -259,6 +259,10 @@ module NepNhaDesign
           raise RPCError.new(-32602, 'Hãy mở khóa và Make Unique nhóm/component cha trước khi khoét.')
         end
 
+        cut_wall_in_context(model, params, wall, model.active_entities, select_cut: true)
+      end
+
+      def cut_wall_in_context(model, params, wall, entities, select_cut: false)
         bounds = wall.bounds
         data = { 'category' => 'wall', 'name' => wall.name, 'base_mm' => bounds.min.z.to_mm,
                  'height_mm' => bounds.depth.to_mm }
@@ -267,7 +271,6 @@ module NepNhaDesign
 
         opening = opening.merge('wall_index' => 0)
         validate_opening(opening, [data])
-        entities = model.active_entities
         with_operation(model) do
           material = wall.material
           layer = wall.layer
@@ -285,8 +288,10 @@ module NepNhaDesign
             cut.set_attribute(dictionary, key, value)
           end
           glass = add_opening_glass(model, entities, data, opening, {})
-          model.selection.clear
-          model.selection.add(cut)
+          if select_cut
+            model.selection.clear
+            model.selection.add(cut)
+          end
           { wall_id: cut.persistent_id, fixed_glass_id: glass&.persistent_id, height_mm: opening['height_mm'] }
         end
       end

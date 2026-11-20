@@ -51,6 +51,13 @@
     .attachment select { flex-shrink:0; max-width:110px; padding:1px 2px; }
     .attachment button, .message .save-reply { min-height:22px; padding:0 5px; font-size:11px; }
     .message .save-reply { display:block; margin-top:7px; }
+    .image-review { max-width:100%; white-space:normal; }
+    .image-review .table-scroll { overflow-x:auto; margin:8px 0; }
+    .image-review table { border-collapse:collapse; width:100%; }
+    .image-review th, .image-review td { padding:3px; text-align:left; }
+    .image-review input { width:100%; min-width:74px; padding:4px; }
+    .image-review .review-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    .image-review form > .render-actions { margin-top:10px; }
     #skillMenu { position:relative; margin:0; padding:3px 7px; }
     #skillMenu[open] { flex-basis:100%; }
     #skillMenu[open] > div { display:flex; flex-wrap:wrap; gap:4px; padding-top:4px; }
@@ -80,8 +87,8 @@
   </style>
 </head>
 <body>
-  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.14.1">v1.14.1</span></header>
-  <main id="messages"><div class="message assistant">Đính kèm ảnh mặt bằng và ảnh tham chiếu để dựng model. Nếu mặt bằng thiếu kích thước, hãy nhập một chiều dài thực giữa hai mốc trên ảnh.</div></main>
+  <header><img class="mark" src="logo.png" alt=""><div><h1>Trợ lý AI Nếp Nhà</h1><p>SketchUp</p></div><button type="button" class="theme" id="theme" aria-label="Đổi màu giao diện" aria-pressed="false" title="Đổi màu giao diện"></button><span class="version" aria-label="Phiên bản 1.15.0">v1.15.0</span></header>
+  <main id="messages"><div class="message assistant">Gửi ảnh tham chiếu để lập bảng khối sơ bộ. Bạn có thể sửa số đo rồi bấm Duyệt và dựng. Với mặt bằng thiếu kích thước, hãy nhập chiều dài thực giữa hai mốc trên ảnh.</div></main>
   <section class="account">
     <div class="account-line"><span class="dot" id="authDot"></span><span id="authMessage">Đang kiểm tra tài khoản ChatGPT…</span></div>
     <div class="auth-actions"><button class="link" id="login" hidden>Tiếp tục với ChatGPT</button><button class="link" id="install" hidden>Cài thành phần ChatGPT</button></div>
@@ -345,6 +352,122 @@
       }
 
       let attachments = [];
+      let imageReviewCard = null;
+      let imageReviewSent = false;
+      let imageReviewNotes = [];
+      function clearImageReview() {
+        if (!imageReviewCard) return;
+        imageReviewCard.remove();
+        imageReviewCard = null;
+        window.sketchup.nep_nha_cancel_image_review();
+      }
+      function showImageReview(proposal, reviewId) {
+        imageReviewCard?.remove();
+        const card = document.createElement('section');
+        card.className = 'message assistant image-review';
+        const title = document.createElement('strong');
+        title.textContent = 'Thông số khối sơ bộ';
+        const note = document.createElement('p');
+        note.className = 'hint';
+        note.textContent = [proposal.scale_basis, proposal.notes].filter(Boolean).join(' · ');
+        const form = document.createElement('form');
+        const scroll = document.createElement('div');
+        scroll.className = 'table-scroll';
+        const table = document.createElement('table');
+        const head = table.createTHead().insertRow();
+        for (const label of ['Tầng', 'Cao độ sàn (mm)', 'Cao tầng (mm)', 'Vươn ban công (mm)', '']) {
+          const cell = document.createElement('th');
+          cell.scope = 'col';
+          cell.textContent = label;
+          head.appendChild(cell);
+        }
+        const body = table.createTBody();
+        const input = (label, value, min, max, optional = false) => {
+          const field = document.createElement('input');
+          field.setAttribute('aria-label', label);
+          field.required = !optional;
+          if (min !== undefined) {
+            field.type = 'number'; field.min = min; field.max = max; field.step = 'any';
+          } else field.maxLength = 100;
+          field.value = value ?? '';
+          return field;
+        };
+        const floorRows = new Map();
+        function addFloor(floor) {
+          const row = body.insertRow();
+          const fields = {
+            name: input('Tên tầng', floor.name),
+            base_mm: input('Cao độ sàn', floor.base_mm, -1000000, 1000000),
+            height_mm: input('Chiều cao tầng', floor.height_mm, 1, 100000),
+            balcony_mm: input('Độ vươn ban công', floor.balcony_mm, 0, 100000)
+          };
+          for (const field of Object.values(fields)) row.insertCell().appendChild(field);
+          const remove = document.createElement('button');
+          remove.type = 'button'; remove.className = 'link'; remove.textContent = '×';
+          remove.setAttribute('aria-label', 'Bỏ dòng tầng');
+          remove.onclick = () => {
+            if (busy || floorRows.size <= 1) return;
+            floorRows.delete(row);
+            row.remove();
+          };
+          row.insertCell().appendChild(remove);
+          floorRows.set(row, fields);
+        }
+        proposal.floors.forEach(addFloor);
+        const plus = document.createElement('button');
+        plus.type = 'button'; plus.className = 'link'; plus.textContent = 'Thêm tầng';
+        plus.onclick = () => {
+          if (busy || floorRows.size >= 40) return;
+          const last = [...floorRows.values()].at(-1);
+          addFloor({name: `Tầng ${floorRows.size + 1}`, base_mm: Number(last.base_mm.value) + Number(last.height_mm.value),
+                    height_mm: last.height_mm.value, balcony_mm: 0});
+        };
+        const fields = document.createElement('div');
+        fields.className = 'review-fields';
+        const values = {};
+        function addField(key, label, min, max, optional) {
+          const wrapper = document.createElement('label');
+          const field = input(label, proposal[key], min, max, optional);
+          wrapper.append(label, field);
+          fields.appendChild(wrapper);
+          values[key] = field;
+        }
+        addField('roof_type', 'Loại mái');
+        addField('roof_overhang_mm', 'Độ vươn mái (mm)', 0, 100000);
+        addField('column_spacing_mm', 'Nhịp cột (mm)', 1, 100000, true);
+        addField('louver_spacing_mm', 'Nhịp lam (mm)', 1, 100000, true);
+        addField('glass_pct', 'Tỷ lệ kính (%)', 0, 100);
+        const solid = document.createElement('output');
+        const updateSolid = () => { solid.textContent = `Mảng đặc ${+(100 - Number(values.glass_pct.value)).toFixed(2)}%`; };
+        values.glass_pct.oninput = updateSolid;
+        updateSolid();
+        fields.appendChild(solid);
+        const actions = document.createElement('div');
+        actions.className = 'render-actions';
+        const approve = document.createElement('button');
+        approve.type = 'button'; approve.className = 'send'; approve.textContent = 'Duyệt và dựng';
+        const cancel = document.createElement('button');
+        cancel.type = 'button'; cancel.className = 'link'; cancel.textContent = 'Bỏ bảng';
+        cancel.onclick = () => { if (!busy) clearImageReview(); };
+        actions.append(approve, cancel);
+        form.onsubmit = event => event.preventDefault();
+        approve.onclick = () => {
+          if (busy || restartRequired || !form.reportValidity()) return;
+          const read = entries => Object.fromEntries(Object.entries(entries).map(([key, field]) =>
+            [key, field.type === 'number' ? (field.value === '' ? null : field.valueAsNumber) : field.value.trim()]));
+          busy = true; send.disabled = model.disabled = effort.disabled = pdfPages.disabled = true;
+          renderControls();
+          window.sketchup.nep_nha_send(JSON.stringify({
+            image_review_id: reviewId, image_values: {...read(values), floors: [...floorRows.values()].map(read)}
+          }));
+        };
+        scroll.appendChild(table);
+        form.append(scroll, plus, fields, actions);
+        card.append(title, note, form);
+        imageReviewCard = card;
+        messages.appendChild(card);
+        messages.scrollTop = messages.scrollHeight;
+      }
       const referencePurposes = [
         ['style', 'Phong cách chung'], ['roof', 'Mái'], ['facade', 'Mặt đứng'],
         ['material', 'Vật liệu'], ['lighting', 'Ánh sáng'], ['detail', 'Chi tiết']
@@ -473,6 +596,9 @@
         button.setAttribute('aria-label', `Bỏ ảnh ${file.name}`);
         button.addEventListener('click', () => {
           if (busy) return;
+          clearImageReview();
+          imageReviewSent = false;
+          imageReviewNotes = [];
           attachments = attachments.filter(item => item !== file);
           if (file.role === 'reference') clearRenderPrompt();
           if (file.role === 'plan') resetPlanReview();
@@ -487,6 +613,9 @@
           select.onchange = () => {
             if (busy) { select.value = file.purpose || 'style'; return; }
             file.purpose = select.value;
+            clearImageReview();
+            imageReviewSent = false;
+            imageReviewNotes = [];
             clearRenderPrompt();
             renderAttachments();
           };
@@ -556,7 +685,8 @@
         if (restartRequired) return;
         const notes = prompt.value.trim();
         const hasPlan = attachments.some(file => file.role === 'plan');
-        const geometry = !options.render && !hasPlan && attachments.some(file => file.role === 'geometry');
+        const geometry = !options.render && !hasPlan && !imageReviewSent &&
+          attachments.some(file => file.role === 'geometry' || file.role === 'reference');
         const exterior = !options.render && !geometry && hasPlan &&
           (options.auto_exterior === true || exteriorPending || !exteriorSent);
         const text = options.render ? (document.getElementById('renderNotes').value.trim() || 'Phân tích và viết prompt render.') :
@@ -571,6 +701,10 @@
           return;
         }
         clearTimeout(autoTimer);
+        if (geometry) {
+          clearImageReview();
+          if (notes && imageReviewNotes.at(-1) !== notes) imageReviewNotes.push(notes);
+        }
         if (exterior && reviewedFloors && reviewedPages !== JSON.stringify(pdf_pages)) {
           resetPlanReview();
         }
@@ -592,12 +726,13 @@
         if (!options.render) prompt.value = '';
         busy = true; send.disabled = model.disabled = effort.disabled = pdfPages.disabled = true;
         renderControls();
-        const wait = add(geometry ? 'Đang phân tích hình học ảnh mẫu…' :
+        const wait = add(geometry ? 'Đang phân tích ảnh và lập bảng thông số sơ bộ…' :
           exterior ? (reviewedFloors ? 'Đang đối chiếu thông số và dựng hình…' : 'Đang đọc các tầng trên mặt bằng…') :
           'Đang chờ ' + (isGemini() ? 'Gemini' : 'ChatGPT') + ' phản hồi…', 'assistant thinking');
         wait.id = 'waiting';
         window.sketchup.nep_nha_send(JSON.stringify({
-          prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") : text,
+          prompt:exterior && exteriorNotes.length ? exteriorNotes.join("\n") :
+            geometry && imageReviewNotes.length ? imageReviewNotes.join("\n") : text,
           model:model.value, effort:effort.value, images, pdf_pages, ...options,
           auto_exterior:exterior, image_geometry:geometry, review_floors:exterior ? reviewedFloors : null,
           plan_latest:exterior ? notes : null,
@@ -620,13 +755,16 @@
           add(`Đã lưu skill vào kho (${result.name}).`, 'assistant');
         },
         attach(file) {
+          if (attachments.some(item => item.path === file.path && item.role === file.role)) return;
+          clearImageReview();
+          imageReviewSent = false;
+          imageReviewNotes = [];
           if (file.role === 'plan') {
             resetPlanReview();
             attachments = attachments.filter(item => item.role !== 'plan');
             pdfPages.value = '';
             pdfStatus.textContent = '';
           }
-          if (attachments.some(item => item.path === file.path && item.role === file.role)) return;
           attachments.push(file);
           if (file.role === 'reference') clearRenderPrompt();
           renderAttachments();
@@ -672,6 +810,14 @@
         },
         receive(result) {
           const wait = document.getElementById('waiting'); if (wait) wait.remove();
+          if (result.image_progress) {
+            if (imageReviewCard) { imageReviewCard.remove(); imageReviewCard = null; }
+            const item = add(`Lớp ${result.stage}/4 · ${result.label}${result.text ? '\n' + result.text : ' · Đang dựng…'}`,
+                             result.text ? 'assistant' : 'assistant thinking', result.image);
+            if (!result.text) item.id = 'waiting';
+            return;
+          }
+          if (result.image_build_finished) imageReviewSent = true;
           if (result.offline_skills) add('Drive đang ngoại tuyến. Đang dùng bản skill cục bộ.', 'assistant');
           busy = false; send.disabled = restartRequired || !modelReady(); model.disabled = pdfPages.disabled = false;
           effort.disabled = effort.options.length < 2;
@@ -684,12 +830,18 @@
             if (!exteriorPending) exteriorNotes = [];
           }
           if (result.reset) {
+            imageReviewCard = null;
+            imageReviewSent = false;
+            imageReviewNotes = [];
             review.hidden = true;
             attachments = [];
             clearRenderPrompt();
             resetPlanReview();
             renderAttachments();
             messages.replaceChildren(); add('Đã bắt đầu cuộc trò chuyện mới.', 'assistant');
+          } else if (result.ok && result.image_review) {
+            showImageReview(result.image_review, result.image_review_id);
+            return;
           } else if (result.ok && result.draft_skill && result.text?.startsWith('# ')) {
             openSkillReview(result.text);
             return;

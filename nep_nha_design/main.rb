@@ -12,6 +12,7 @@ require 'tmpdir'
 require 'uri'
 Sketchup.require(File.join(__dir__, 'su_mcp_bridge'))
 Sketchup.require(File.join(__dir__, 'render_scene'))
+Sketchup.require(File.join(__dir__, 'image_review'))
 
 module NepNhaDesign
   module Setup
@@ -30,7 +31,7 @@ module NepNhaDesign
     SKILLS_DIR = File.join(DATA_DIR, 'design-skills').freeze
     SHARED_SKILLS_SETTING = 'SharedSkillsDirectory'
     MCP_SERVER_PATH = File.join(ROOT, 'mcp_server.py').freeze
-    VERSION = '1.14.1'
+    VERSION = '1.15.0'
     DEFAULT_REPOSITORY = 'Shmily1905/nep_nha_design'
 
     class << self
@@ -234,6 +235,7 @@ module NepNhaDesign
           UI.openURL(prefix + path)
         end
         @chat_dialog.add_action_callback('nep_nha_reset') { |_context| reset_chat }
+        @chat_dialog.add_action_callback('nep_nha_cancel_image_review') { |_context| @image_review = nil }
         @chat_dialog.add_action_callback('nep_nha_auth_status') do |_context|
           repository = Sketchup.read_default('NepNhaDesign', 'UpdateRepository', DEFAULT_REPOSITORY)
           @chat_dialog.execute_script("window.NepNhaChat.repository(#{JSON.generate(repository)})")
@@ -279,6 +281,7 @@ module NepNhaDesign
           UI.openURL("https://github.com/settings/personal-access-tokens/new?#{query}")
         end
         @chat_dialog.set_on_closed do
+          @image_review = nil
           render_watch(false)
           directory = @render_dir
           if @chat_busy || @render_processing
@@ -352,6 +355,10 @@ module NepNhaDesign
         end
 
         request = JSON.parse(raw)
+        if request.key?('image_review_id')
+          approve_image_review(request, Sketchup.active_model)
+          return
+        end
         model_id = request['model'].to_s
         gemini = model_id.start_with?('google:')
         @provider_threads ||= {}
@@ -392,9 +399,7 @@ module NepNhaDesign
           raise ArgumentError, 'Hãy mở một model SketchUp để dựng hình.' unless model
           raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
 
-          payload[:action] = 'image_geometry'
-          payload[:model_guard] = SecureRandom.hex(16)
-          Bridge.pin_model(payload[:model_guard], model)
+          image_review_request(payload)
         elsif request['auto_exterior'] == true
           raise ArgumentError, 'Hãy thoát chế độ chỉnh sửa group trước khi dựng.' if model.active_path
 
@@ -417,7 +422,6 @@ module NepNhaDesign
             next
           end
           UI.stop_timer(timer)
-          Bridge.release_model_pin(payload[:model_guard]) if payload[:model_guard]
           @chat_busy = false
           next unless dialog.equal?(@chat_dialog) && dialog.visible?
 
@@ -447,8 +451,14 @@ module NepNhaDesign
               result['error'] = "Không dựng được nhà: #{e.message}"
             end
           end
-          if result['ok'] && result['thread_id'] && [nil, 'image_geometry'].include?(payload[:action])
+          if result['ok'] && result['thread_id'] && !payload[:action]
             @provider_threads[provider] = result['thread_id']
+          end
+          if payload[:action] == 'image_review' && result['ok'] && result['image_review']
+            id = SecureRandom.hex(16)
+            @image_review = { id: id, model: model, payload: payload,
+                              proposal: result['image_review'], frame: result.delete('image_frame') }
+            result['image_review_id'] = id
           end
           result['exterior'] = true if payload[:action] == 'auto_exterior'
           result['draft_skill'] = draft if result['ok']
@@ -590,6 +600,7 @@ module NepNhaDesign
       end
 
       def reset_chat
+        @image_review = nil
         @provider_threads = {}
         @plan_model = @plan_context = nil
         send_to_chat(ok: true, reset: true)

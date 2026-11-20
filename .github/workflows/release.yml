@@ -34,6 +34,18 @@ jobs:
           abort 'Selection snapshot failed' unless bridge.selection_info(model) == [
             { id: 123, type: 'Group', name: 'Wall' }
           ]
+          # A guarded image session must reject operations from a later layer.
+          bridge.pin_model('staged-image', model, [960, 720])
+          bridge.start_image_stage('staged-image', 0)
+          state = bridge.instance_variable_get(:@model_pins).fetch('staged-image')
+          begin
+            bridge.send(:dispatch_image_stage, state, 'cut_existing_wall', {})
+            abort 'Image stage allowed a premature cut'
+          rescue NepNhaDesign::Bridge::RPCError => e
+            abort 'Unexpected image stage error' unless e.code == -32602
+          ensure
+            bridge.release_model_pin('staged-image')
+          end
           RUBY
           python3 scripts/build_rbz.py --tag "$GITHUB_REF_NAME"
           unzip -t "dist/Nep-Nha-Design-Tro-Ly-ChatGPT-$GITHUB_REF_NAME.rbz"

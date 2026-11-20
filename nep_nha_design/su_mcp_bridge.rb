@@ -13,7 +13,7 @@ module NepNhaDesign
   module Bridge
     HOST = '127.0.0.1'
     PORT = 9876
-    VERSION = '1.14.1'
+    VERSION = '1.15.0'
     MAX_REQUEST = 512 * 1024
     MAX_IMAGE = 4 * 1024 * 1024
     MAX_CLIENTS = 8
@@ -54,12 +54,32 @@ module NepNhaDesign
         nil
       end
 
-      def pin_model(token, model)
-        (@model_pins ||= {})[token] = model
+      def pin_model(token, model, frame)
+        (@model_pins ||= {})[token] = { model: model, frame: frame, roots: [], materials: [] }
       end
 
       def release_model_pin(token)
         @model_pins&.delete(token)
+      end
+
+      def start_image_stage(token, stage)
+        state = @model_pins.fetch(token)
+        state.merge!(stage: stage, stage_roots: [], image: nil, cut: false, painted: false)
+      end
+
+      def image_stage_capture(token)
+        state = @model_pins.fetch(token)
+        model = state.fetch(:model)
+        return nil unless Sketchup.active_model == model && !model.active_path
+        return nil if state[:stage] == 0 && state[:roots].empty?
+        return nil if state[:stage] == 3 && !state[:painted]
+
+        state[:image]
+      end
+
+      def image_stage_built?(token)
+        state = @model_pins.fetch(token)
+        state[:cut] || state[:painted] || !state[:stage_roots].empty?
       end
 
       private
@@ -174,13 +194,15 @@ module NepNhaDesign
         params = request.fetch('params', {})
         raise RPCError.new(-32602, 'Expected named parameters') unless params.is_a?(Hash)
 
+        stage = nil
         if request.key?('model_guard')
-          expected = @model_pins&.fetch(request['model_guard'], nil)
+          stage = @model_pins&.fetch(request['model_guard'], nil)
+          expected = stage&.fetch(:model)
           unless expected && Sketchup.active_model == expected && !expected.active_path
             raise RPCError.new(-32001, 'Model hoặc vùng chỉnh sửa đã đổi. Hãy gửi lại yêu cầu ở model đích.')
           end
         end
-        result = dispatch(request['method'], params)
+        result = stage ? dispatch_image_stage(stage, request['method'], params) : dispatch(request['method'], params)
         JSON.generate(jsonrpc: '2.0', id: id, result: result) + "\n"
       rescue JSON::ParserError
         error_reply(nil, -32700, 'Invalid JSON')
@@ -189,6 +211,119 @@ module NepNhaDesign
       rescue StandardError => e
         warn "[Nếp Nhà Design] RPC: #{e.class}: #{e.message}"
         error_reply(id, -32603, 'SketchUp API error. See Ruby Console.')
+      end
+
+      def dispatch_image_stage(state, method, params)
+        model = state.fetch(:model)
+        index = state.fetch(:stage)
+        case method
+        when 'capture_viewport'
+          camera = state[:camera]
+          raise RPCError.new(-32602, 'Đặt máy theo ảnh bằng drawing_camera action=position trước khi chụp.') unless camera
+
+          eye, target, up, perspective, optics = camera
+          locked = Sketchup::Camera.new(eye, target, up, perspective)
+          if perspective
+            locked.fov = optics
+          else
+            locked.height = optics
+          end
+          model.active_view.camera = locked
+          width, height = state.fetch(:frame)
+          picture = capture_viewport(model, { 'width' => width, 'height' => height })
+          state[:image] = { mime_type: picture[:mime_type], data: picture[:image_base64] }
+          return picture
+        when 'drawing_camera'
+          unless index.zero? && params['action'] == 'position'
+            raise RPCError.new(-32602, 'Chỉ đặt máy ở lớp khối thô. Các lớp sau dùng máy đã khóa.')
+          end
+          result = drawing_camera(model, params)
+          view = model.active_view.camera
+          perspective = view.perspective?
+          state[:camera] = [view.eye, view.target, view.up, perspective, perspective ? view.fov : view.height]
+        when 'draw_geometry', 'build_hip_roof'
+          unless (method == 'draw_geometry' && index < 3) || (method == 'build_hip_roof' && index == 2)
+            raise RPCError.new(-32602, 'Công cụ dựng này nằm ngoài lớp hiện tại.')
+          end
+          items = params.fetch('items', [])
+          if items.any? { |item| item['material'] && !state[:materials].include?(item['material']) }
+            raise RPCError.new(-32602, 'Chỉ dùng vật liệu được tạo trong lượt dựng này.')
+          end
+          result = dispatch(method, params)
+          if result[:created]
+            state[:roots] << result.fetch(:group_id)
+            state[:stage_roots] << result.fetch(:group_id)
+          elsif !state[:roots].include?(result[:group_id])
+            raise RPCError.new(-32602, 'ID dựng đã được sử dụng trong model. Hãy chọn ID mới.')
+          end
+        when 'cut_existing_wall'
+          raise RPCError.new(-32602, 'Chỉ khoét ô ở lớp 2.') unless index == 1
+
+          wall = image_stage_group(state, params['wall_id'])
+          raise RPCError.new(-32602, 'Tường cần khoét phải là một Solid kín.') unless wall.manifold?
+
+          result = cut_wall_in_context(model, params, wall, wall.parent.entities)
+          state[:cut] = true
+        when 'upsert_material'
+          unless [1, 3].include?(index) &&
+                 (state[:materials].include?(params['name']) || !model.materials[params['name'].to_s])
+            raise RPCError.new(-32602, 'Chỉ tạo hoặc sửa vật liệu riêng của lượt dựng ở lớp mở ô và tô màu.')
+          end
+          result = upsert_material(model, params)
+          state[:materials] |= [result.fetch(:name)]
+        when 'edit_drawing'
+          ids = params['ids']
+          raise RPCError.new(-32602, 'Cần ID cấu kiện.') unless ids.is_a?(Array) && !ids.empty?
+
+          groups = ids.uniq.map { |id| image_stage_group(state, id) }
+          case params['action']
+          when 'paint'
+            material = model.materials[params['material'].to_s] if state[:materials].include?(params['material'])
+            raise RPCError.new(-32602, 'Tạo vật liệu riêng rồi tô màu ở lớp 4.') unless index == 3 && material
+
+            with_operation(model) do
+              groups.each { |group| group.material = material }
+            end
+            state[:painted] = true
+          when 'erase'
+            unless index < 3 && (ids - state[:stage_roots]).empty?
+              raise RPCError.new(-32602, 'Chỉ thay khối do chính lớp đang dựng tạo ra.')
+            end
+            with_operation(model) { model.entities.erase_entities(groups) }
+            state[:roots] -= ids
+            state[:stage_roots] -= ids
+          else
+            raise RPCError.new(-32602, 'Để sửa khối sai, dựng bản đúng rồi bỏ nhóm sai của lớp này.')
+          end
+          result = { affected: groups.length }
+        when 'ping_sketchup', 'get_model_info', 'inspect_drawing', 'measure_drawing'
+          return dispatch(method, params)
+        else
+          raise RPCError.new(-32602, 'Công cụ này không nằm trong quy trình dựng theo ảnh đã duyệt.')
+        end
+        state[:image] = nil
+        result
+      end
+
+      def image_stage_group(state, id)
+        model = state.fetch(:model)
+        group = model.find_entity_by_persistent_id(id) if id.is_a?(Integer)
+        if group.is_a?(Sketchup::Group) && !group.locked?
+          root = group
+          until root.parent == model
+            parent = root.parent
+            if parent.is_a?(Sketchup::Group)
+              root = parent
+            elsif parent.is_a?(Sketchup::ComponentDefinition) && parent.instances.length == 1
+              root = parent.instances.first
+            else
+              break
+            end
+            break if root.locked?
+          end
+          return group if !root.locked? && root.parent == model && state[:roots].include?(root.persistent_id)
+        end
+        raise RPCError.new(-32602, 'Chọn ID nhóm thuộc lượt dựng ảnh này.')
       end
 
       def dispatch(method, params)
